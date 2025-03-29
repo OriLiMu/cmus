@@ -1,0 +1,1 @@
+static void cmd_pinyin_index(char *arg);

@@ -30,12 +30,55 @@
 
 #include <stdio.h>
 #include <ctype.h>
+#include <stdarg.h>
 
 struct window *filters_win;
 struct searchable *filters_searchable;
 LIST_HEAD(filters_head);
 
 static const char *recursive_filter;
+
+// 调试文件处理函数
+static FILE *filter_debug_fp = NULL;
+
+static void filter_debug_init(void)
+{
+	if (!filter_debug_fp)
+	{
+		filter_debug_fp = fopen("/tmp/cmus_filter_debug.log", "w");
+		if (filter_debug_fp)
+		{
+			fprintf(filter_debug_fp, "===== CMUS FILTER DEBUG LOG STARTED =====\n");
+			fflush(filter_debug_fp);
+		}
+	}
+}
+
+static void filter_debug_log(const char *format, ...)
+{
+	if (!filter_debug_fp)
+	{
+		filter_debug_init();
+		if (!filter_debug_fp)
+			return;
+	}
+
+	va_list ap;
+	va_start(ap, format);
+	vfprintf(filter_debug_fp, format, ap);
+	va_end(ap);
+	fflush(filter_debug_fp);
+}
+
+static void filter_debug_close(void)
+{
+	if (filter_debug_fp)
+	{
+		fprintf(filter_debug_fp, "===== CMUS FILTER DEBUG LOG CLOSED =====\n");
+		fclose(filter_debug_fp);
+		filter_debug_fp = NULL;
+	}
+}
 
 static inline void filter_entry_to_iter(struct filter_entry *e, struct iter *iter)
 {
@@ -44,10 +87,9 @@ static inline void filter_entry_to_iter(struct filter_entry *e, struct iter *ite
 	iter->data2 = NULL;
 }
 
-static GENERIC_ITER_PREV(filters_get_prev, struct filter_entry, node)
-static GENERIC_ITER_NEXT(filters_get_next, struct filter_entry, node)
+static GENERIC_ITER_PREV(filters_get_prev, struct filter_entry, node) static GENERIC_ITER_NEXT(filters_get_next, struct filter_entry, node)
 
-static int filters_search_get_current(void *data, struct iter *iter, enum search_direction dir)
+	static int filters_search_get_current(void *data, struct iter *iter, enum search_direction dir)
 {
 	return window_get_sel(filters_win, iter);
 }
@@ -57,13 +99,16 @@ static int filters_search_matches(void *data, struct iter *iter, const char *tex
 	char **words = get_words(text);
 	int matched = 0;
 
-	if (words[0] != NULL) {
+	if (words[0] != NULL)
+	{
 		struct filter_entry *e;
 		int i;
 
 		e = iter_to_filter_entry(iter);
-		for (i = 0; ; i++) {
-			if (words[i] == NULL) {
+		for (i = 0;; i++)
+		{
+			if (words[i] == NULL)
+			{
 				window_set_sel(filters_win, iter);
 				matched = 1;
 				break;
@@ -80,8 +125,7 @@ static const struct searchable_ops filters_search_ops = {
 	.get_prev = filters_get_prev,
 	.get_next = filters_get_next,
 	.get_current = filters_search_get_current,
-	.matches = filters_search_matches
-};
+	.matches = filters_search_matches};
 
 static void free_filter(struct filter_entry *e)
 {
@@ -94,7 +138,8 @@ static struct filter_entry *find_filter(const char *name)
 {
 	struct filter_entry *e;
 
-	list_for_each_entry(e, &filters_head, node) {
+	list_for_each_entry(e, &filters_head, node)
+	{
 		if (strcmp(e->name, name) == 0)
 			return e;
 	}
@@ -105,8 +150,10 @@ static const char *get_filter(const char *name)
 {
 	struct filter_entry *e = find_filter(name);
 
-	if (e) {
-		if (e->visited) {
+	if (e)
+	{
+		if (e->visited)
+		{
 			recursive_filter = e->name;
 			return NULL;
 		}
@@ -138,12 +185,14 @@ void filters_activate(int win_activate)
 	int unchanged = 1;
 
 	/* if no pending selection is to apply, edit currently select filter */
-	list_for_each_entry(f, &filters_head, node) {
+	list_for_each_entry(f, &filters_head, node)
+	{
 		if (f->act_stat != f->sel_stat)
 			unchanged = 0;
 	}
 
-	if (unchanged) {
+	if (unchanged)
+	{
 		if (win_activate)
 			edit_sel_filter();
 		else
@@ -152,21 +201,24 @@ void filters_activate(int win_activate)
 
 	/* mark visited and AND together all selected filters
 	 * mark any other filters unvisited */
-	list_for_each_entry(f, &filters_head, node) {
+	list_for_each_entry(f, &filters_head, node)
+	{
 		f->visited = 0;
 		if (f->sel_stat == FS_IGNORE)
 			continue;
 
 		f->visited = 1;
 		e = expr_parse(f->filter);
-		if (e == NULL) {
+		if (e == NULL)
+		{
 			error_msg("error parsing filter %s: %s", f->name, expr_error());
 			if (expr)
 				expr_free(expr);
 			return;
 		}
 
-		if (f->sel_stat == FS_NO) {
+		if (f->sel_stat == FS_NO)
+		{
 			/* add ! */
 			struct expr *not = xnew(struct expr, 1);
 
@@ -176,9 +228,12 @@ void filters_activate(int win_activate)
 			not->right = NULL;
 			e = not;
 		}
-		if (expr == NULL) {
+		if (expr == NULL)
+		{
 			expr = e;
-		} else {
+		}
+		else
+		{
 			struct expr *and = xnew(struct expr, 1);
 
 			and->type = EXPR_AND;
@@ -192,10 +247,14 @@ void filters_activate(int win_activate)
 	}
 
 	recursive_filter = NULL;
-	if (expr && expr_check_leaves(&expr, get_filter)) {
-		if (recursive_filter) {
+	if (expr && expr_check_leaves(&expr, get_filter))
+	{
+		if (recursive_filter)
+		{
 			error_msg("recursion detected in filter %s", recursive_filter);
-		} else {
+		}
+		else
+		{
 			error_msg("error parsing filter: %s", expr_error());
 		}
 		expr_free(expr);
@@ -203,7 +262,8 @@ void filters_activate(int win_activate)
 	}
 
 	/* update active flag */
-	list_for_each_entry(f, &filters_head, node) {
+	list_for_each_entry(f, &filters_head, node)
+	{
 		f->act_stat = f->sel_stat;
 	}
 	lib_set_filter(expr);
@@ -216,13 +276,15 @@ static int for_each_name(const char *str, int (*cb)(const char *name, int sel_st
 	int s, e, len;
 
 	e = 0;
-	do {
+	do
+	{
 		int sel_stat = FS_YES;
 
 		s = e;
 		while (str[s] == ' ')
 			s++;
-		if (str[s] == '!') {
+		if (str[s] == '!')
+		{
 			sel_stat = FS_NO;
 			s++;
 		}
@@ -233,7 +295,8 @@ static int for_each_name(const char *str, int (*cb)(const char *name, int sel_st
 		len = e - s;
 		if (len == 0)
 			return 0;
-		if (len >= sizeof(buf)) {
+		if (len >= sizeof(buf))
+		{
 			error_msg("filter name too long");
 			return -1;
 		}
@@ -248,7 +311,8 @@ static int for_each_name(const char *str, int (*cb)(const char *name, int sel_st
 
 static int ensure_filter_name(const char *name, int sel_stat)
 {
-	if (find_filter(name) == NULL) {
+	if (find_filter(name) == NULL)
+	{
 		error_msg("no such filter %s", name);
 		return -1;
 	}
@@ -287,7 +351,8 @@ void filters_toggle_filter(void)
 {
 	struct iter iter;
 
-	if (window_get_sel(filters_win, &iter)) {
+	if (window_get_sel(filters_win, &iter))
+	{
 		struct filter_entry *e;
 
 		e = iter_to_filter_entry(&iter);
@@ -300,11 +365,13 @@ void filters_delete_filter(void)
 {
 	struct iter iter;
 
-	if (window_get_sel(filters_win, &iter)) {
+	if (window_get_sel(filters_win, &iter))
+	{
 		struct filter_entry *e;
 
 		e = iter_to_filter_entry(&iter);
-		if (yes_no_query("Delete filter '%s'? [y/N]", e->name) == UI_QUERY_ANSWER_YES) {
+		if (yes_no_query("Delete filter '%s'? [y/N]", e->name) == UI_QUERY_ANSWER_YES)
+		{
 			window_row_vanishes(filters_win, &iter);
 			list_del(&e->node);
 			free_filter(e);
@@ -316,7 +383,8 @@ static int validate_filter_name(const char *name)
 {
 	int i;
 
-	for (i = 0; name[i]; i++) {
+	for (i = 0; name[i]; i++)
+	{
 		if (isalnum((unsigned char)name[i]))
 			continue;
 		if (name[i] == '_' || name[i] == '-')
@@ -334,14 +402,16 @@ static void do_filters_set_filter(const char *keyval)
 	struct filter_entry *new;
 	struct list_head *item;
 
-	if (eq == NULL) {
+	if (eq == NULL)
+	{
 		if (ui_initialized)
 			error_msg("invalid argument ('key=value' expected)");
 		return;
 	}
 	key = xstrndup(keyval, eq - keyval);
 	val = xstrdup(eq + 1);
-	if (!validate_filter_name(key)) {
+	if (!validate_filter_name(key))
+	{
 		if (ui_initialized)
 			error_msg("invalid filter name (can only contain 'a-zA-Z0-9_-' characters)");
 		free(key);
@@ -349,7 +419,8 @@ static void do_filters_set_filter(const char *keyval)
 		return;
 	}
 	expr = expr_parse(val);
-	if (expr == NULL) {
+	if (expr == NULL)
+	{
 		if (ui_initialized)
 			error_msg("error parsing filter %s: %s", val, expr_error());
 		free(key);
@@ -365,18 +436,21 @@ static void do_filters_set_filter(const char *keyval)
 	new->sel_stat = FS_IGNORE;
 
 	/* add or replace filter */
-	list_for_each(item, &filters_head) {
+	list_for_each(item, &filters_head)
+	{
 		struct filter_entry *e = container_of(item, struct filter_entry, node);
 		int res = strcmp(key, e->name);
 
 		if (res < 0)
 			break;
-		if (res == 0) {
+		if (res == 0)
+		{
 			/* replace */
 			struct iter iter;
 
 			new->sel_stat = e->sel_stat;
-			if (ui_initialized) {
+			if (ui_initialized)
+			{
 				filter_entry_to_iter(e, &iter);
 				window_row_vanishes(filters_win, &iter);
 			}
@@ -422,9 +496,11 @@ struct expr *parse_filter(const char *val)
 	struct expr *e = NULL;
 	struct filter_entry *f;
 
-	if (val) {
+	if (val)
+	{
 		e = expr_parse(val);
-		if (e == NULL) {
+		if (e == NULL)
+		{
 			error_msg("error parsing filter %s: %s", val, expr_error());
 			return NULL;
 		}
@@ -435,10 +511,14 @@ struct expr *parse_filter(const char *val)
 		f->visited = 0;
 
 	recursive_filter = NULL;
-	if (e && expr_check_leaves(&e, get_filter)) {
-		if (recursive_filter) {
+	if (e && expr_check_leaves(&e, get_filter))
+	{
+		if (recursive_filter)
+		{
 			error_msg("recursion detected in filter %s", recursive_filter);
-		} else {
+		}
+		else
+		{
 			error_msg("error parsing filter: %s", expr_error());
 		}
 		expr_free(e);
@@ -452,7 +532,8 @@ void filters_set_anonymous(const char *val)
 	struct filter_entry *f;
 	struct expr *e = NULL;
 
-	if (val) {
+	if (val)
+	{
 		e = parse_filter(val);
 		if (e == NULL)
 			return;
@@ -469,6 +550,13 @@ void filters_set_anonymous(const char *val)
 
 void filters_set_live(const char *val)
 {
+	filter_debug_log("DEBUG: filters_set_live called with val = %s\n", val ? val : "NULL");
 	lib_set_live_filter(val);
 	update_filterline();
+	filter_debug_log("DEBUG: filters_set_live completed\n");
+}
+
+void filters_debug_exit(void)
+{
+	filter_debug_close();
 }

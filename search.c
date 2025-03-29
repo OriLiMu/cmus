@@ -24,17 +24,20 @@
 #include "options.h"
 #include "debug.h"
 
-struct searchable {
+struct searchable
+{
 	void *data;
 	struct iter head;
 	struct searchable_ops ops;
 };
 
 static int advance(struct searchable *s, struct iter *iter,
-		enum search_direction dir, int *wrapped)
+				   enum search_direction dir, int *wrapped)
 {
-	if (dir == SEARCH_FORWARD) {
-		if (!s->ops.get_next(iter)) {
+	if (dir == SEARCH_FORWARD)
+	{
+		if (!s->ops.get_next(iter))
+		{
 			if (!wrap_search)
 				return 0;
 			*iter = s->head;
@@ -42,8 +45,11 @@ static int advance(struct searchable *s, struct iter *iter,
 				return 0;
 			*wrapped += 1;
 		}
-	} else {
-		if (!s->ops.get_prev(iter)) {
+	}
+	else
+	{
+		if (!s->ops.get_prev(iter))
+		{
 			if (!wrap_search)
 				return 0;
 			*iter = s->head;
@@ -58,7 +64,7 @@ static int advance(struct searchable *s, struct iter *iter,
 /* returns next matching item or NULL if not found
  * result can be the current item unless skip_current is set */
 static int do_u_search(struct searchable *s, struct iter *iter, const char *text,
-		enum search_direction dir, int skip_current)
+					   enum search_direction dir, int skip_current)
 {
 	struct iter start;
 	int wrapped = 0;
@@ -67,12 +73,12 @@ static int do_u_search(struct searchable *s, struct iter *iter, const char *text
 		return 0;
 
 	start = *iter;
-	while (1) {
-		if (s->ops.matches(s->data, iter, text)) {
+	while (1)
+	{
+		if (s->ops.matches(s->data, iter, text))
+		{
 			if (wrapped)
-				info_msg(dir == SEARCH_FORWARD ?
-					 "search hit BOTTOM, continuing at TOP" :
-					 "search hit TOP, continuing at BOTTOM");
+				info_msg(dir == SEARCH_FORWARD ? "search hit BOTTOM, continuing at TOP" : "search hit TOP, continuing at BOTTOM");
 			return 1;
 		}
 		if (!advance(s, iter, dir, &wrapped) || iters_equal(iter, &start))
@@ -82,7 +88,8 @@ static int do_u_search(struct searchable *s, struct iter *iter, const char *text
 		 * get_next/get_prev never equals the initial get_current
 		 * (#1332)
 		 */
-		if (wrapped > 1) {
+		if (wrapped > 1)
+		{
 			d_print("fixme: bailing since search wrapped more than once without a match\n");
 			return 0;
 		}
@@ -90,7 +97,7 @@ static int do_u_search(struct searchable *s, struct iter *iter, const char *text
 }
 
 static int do_search(struct searchable *s, struct iter *iter, const char *text,
-		enum search_direction dir, int skip_current)
+					 enum search_direction dir, int skip_current)
 {
 	char *u_text = NULL;
 	int r;
@@ -131,15 +138,27 @@ int search(struct searchable *s, const char *text, enum search_direction dir, in
 	struct iter iter;
 	int ret;
 
-	if (beginning) {
+	// 添加对空字符串的检查
+	if (text == NULL || text[0] == '\0')
+	{
+		return 0;
+	}
+
+	if (beginning)
+	{
 		/* first or last item */
 		iter = s->head;
-		if (dir == SEARCH_FORWARD) {
+		if (dir == SEARCH_FORWARD)
+		{
 			ret = s->ops.get_next(&iter);
-		} else {
+		}
+		else
+		{
 			ret = s->ops.get_prev(&iter);
 		}
-	} else {
+	}
+	else
+	{
 		/* selected item */
 		ret = s->ops.get_current(s->data, &iter, dir);
 	}
@@ -153,7 +172,14 @@ int search_next(struct searchable *s, const char *text, enum search_direction di
 	struct iter iter;
 	int ret;
 
-	if (!s->ops.get_current(s->data, &iter, dir)) {
+	// 添加对空字符串的检查
+	if (text == NULL || text[0] == '\0')
+	{
+		return 0;
+	}
+
+	if (!s->ops.get_current(s->data, &iter, dir))
+	{
 		return 0;
 	}
 	ret = do_search(s, &iter, text, dir, 1);

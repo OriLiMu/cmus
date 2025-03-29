@@ -29,7 +29,8 @@
  * bar: FS_NO
  * baz: FS_IGNORE
  */
-enum {
+enum
+{
 	/* [ ] filter not selected */
 	FS_IGNORE,
 	/* [*] filter selected */
@@ -38,7 +39,8 @@ enum {
 	FS_NO,
 };
 
-struct filter_entry {
+struct filter_entry
+{
 	struct list_head node;
 
 	char *name;
@@ -88,5 +90,7 @@ void filters_activate_names(const char *str);
 void filters_activate(int win_activate);
 void filters_toggle_filter(void);
 void filters_delete_filter(void);
+
+void filters_debug_exit(void);
 
 #endif

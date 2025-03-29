@@ -35,7 +35,8 @@
 #include <stdio.h>
 #include <signal.h>
 
-struct playlist {
+struct playlist
+{
 	struct list_head node;
 
 	char *name;
@@ -48,7 +49,7 @@ char *pl_resume_name;
 unsigned long pl_resume_row;
 
 static struct playlist *pl_visible; /* never NULL */
-static struct playlist *pl_marked; /* never NULL */
+static struct playlist *pl_marked;	/* never NULL */
 struct window *pl_list_win;
 
 /* pl_playing_track shares its track_info reference with the playlist it's in.
@@ -71,10 +72,9 @@ static char *pl_name_to_pl_file(const char *name)
 
 static void pl_to_iter(struct playlist *pl, struct iter *iter)
 {
-	*iter = (struct iter) {
+	*iter = (struct iter){
 		.data0 = &pl_head,
-		.data1 = &pl->node
-	};
+		.data1 = &pl->node};
 }
 
 static struct playlist *pl_from_list(const struct list_head *list)
@@ -88,8 +88,8 @@ static struct playlist *pl_from_editable(const struct editable *editable)
 }
 
 static int pl_search_get_generic(struct iter *iter,
-		struct list_head *(*list_step)(struct list_head *list),
-		int (*iter_step)(struct iter *iter))
+								 struct list_head *(*list_step)(struct list_head *list),
+								 int (*iter_step)(struct iter *iter))
 {
 	struct list_head *pl_node = iter->data2;
 	struct playlist *pl;
@@ -134,12 +134,10 @@ static int pl_search_matches(void *data, struct iter *iter, const char *text)
 	int matched = 0;
 
 	char **words = get_words(text);
-	for (size_t i = 0; words[i]; i++) {
-
-		/* set in the loop to deal with empty search string */
-		matched = 1;
-
-		if (!u_strcasestr_base(pl->name, words[i])) {
+	for (size_t i = 0; words[i]; i++)
+	{
+		if (words[i] && words[i][0] && !u_strcasestr_base(pl->name, words[i]))
+		{
 			matched = 0;
 			break;
 		}
@@ -149,14 +147,16 @@ static int pl_search_matches(void *data, struct iter *iter, const char *text)
 	if (!matched && iter->data1)
 		matched = _simple_track_search_matches(iter, text);
 
-	if (matched) {
+	if (matched)
+	{
 		struct iter list_iter;
 		pl_to_iter(pl, &list_iter);
 		window_set_sel(pl_list_win, &list_iter);
 
 		editable_take_ownership(&pl->editable);
 
-		if (iter->data1) {
+		if (iter->data1)
+		{
 			struct iter track_iter = *iter;
 			track_iter.data2 = NULL;
 			window_set_sel(pl_editable_shared.win, &track_iter);
@@ -216,8 +216,7 @@ static void pl_add_track(struct playlist *pl, struct track_info *ti)
 
 static void pl_loaded(struct playlist *pl)
 {
-	if (!pl_resume_name || strcmp(pl->name, pl_resume_name) != 0
-			|| pl_resume_row >= pl->editable.nr_tracks)
+	if (!pl_resume_name || strcmp(pl->name, pl_resume_name) != 0 || pl_resume_row >= pl->editable.nr_tracks)
 		return;
 
 	struct list_head *li = pl->editable.head.next;
@@ -284,12 +283,14 @@ static void pl_load_all(void)
 	if (dir_open(&dir, cmus_playlist_dir))
 		die_errno("error: cannot open playlist directory %s", cmus_playlist_dir);
 	const char *file;
-	while ((file = dir_read(&dir))) {
+	while ((file = dir_read(&dir)))
+	{
 		if (strcmp(file, ".") == 0 || strcmp(file, "..") == 0)
 			continue;
-		if (!S_ISREG(dir.st.st_mode)) {
+		if (!S_ISREG(dir.st.st_mode))
+		{
 			error_msg("error: %s in %s is not a regular file", file,
-					cmus_playlist_dir);
+					  cmus_playlist_dir);
 			continue;
 		}
 		pl_load_one(file);
@@ -331,10 +332,13 @@ static struct simple_track *pl_get_first_track(struct playlist *pl)
 {
 	/* pl is not empty */
 
-	if (shuffle) {
+	if (shuffle)
+	{
 		struct shuffle_info *si = shuffle_list_get_next(&pl->shuffle_root, NULL, NULL);
 		return shuffle_info_to_simple_track(si);
-	} else {
+	}
+	else
+	{
 		return to_simple_track(pl->editable.head.next);
 	}
 }
@@ -372,7 +376,8 @@ static struct track_info *pl_play_first_in_pl_playing(void)
 	if (!pl_playing)
 		pl_playing = pl_visible;
 
-	if (pl_empty(pl_playing)) {
+	if (pl_empty(pl_playing))
+	{
 		pl_playing = NULL;
 		return NULL;
 	}
@@ -386,7 +391,7 @@ static struct simple_track *pl_get_next(struct playlist *pl, struct simple_track
 }
 
 static struct simple_track *pl_get_next_shuffled(struct playlist *pl,
-		struct simple_track *cur)
+												 struct simple_track *cur)
 {
 	struct shuffle_info *si = &cur->shuffle_info;
 	si = shuffle_list_get_next(&pl->shuffle_root, si, NULL);
@@ -394,13 +399,13 @@ static struct simple_track *pl_get_next_shuffled(struct playlist *pl,
 }
 
 static struct simple_track *pl_get_prev(struct playlist *pl,
-		struct simple_track *cur)
+										struct simple_track *cur)
 {
 	return simple_list_get_prev(&pl->editable.head, cur, NULL, true);
 }
 
 static struct simple_track *pl_get_prev_shuffled(struct playlist *pl,
-		struct simple_track *cur)
+												 struct simple_track *cur)
 {
 	struct shuffle_info *si = &cur->shuffle_info;
 	si = shuffle_list_get_prev(&pl->shuffle_root, si, NULL);
@@ -413,7 +418,7 @@ static int pl_match_add_job(uint32_t type, void *job_data, void *opaque)
 	if (type != pat)
 		return 0;
 
-	struct add_data *add_data= job_data;
+	struct add_data *add_data = job_data;
 	return add_data->opaque == opaque;
 }
 
@@ -455,7 +460,8 @@ static void pl_delete(struct playlist *pl)
 
 	if (pl == pl_marked)
 		pl_marked = pl_visible;
-	if (pl == pl_playing) {
+	if (pl == pl_playing)
+	{
 		pl_playing = NULL;
 		pl_playing_track = NULL;
 	}
@@ -486,8 +492,10 @@ static void pl_delete_selected_pl(void)
 void pl_delete_by_name(char *name)
 {
 	struct playlist *pl;
-	list_for_each_entry(pl, &pl_head, node) {
-		if (strcmp(pl->name, name) == 0) {
+	list_for_each_entry(pl, &pl_head, node)
+	{
+		if (strcmp(pl->name, name) == 0)
+		{
 			pl_delete(pl);
 			return;
 		}
@@ -499,7 +507,8 @@ void pl_delete_all(void)
 {
 	struct playlist *pl;
 	struct playlist *temp;
-	list_for_each_entry_safe(pl, temp, &pl_head, node) {
+	list_for_each_entry_safe(pl, temp, &pl_head, node)
+	{
 		if (list_len(&pl_head) == 1)
 			break;
 		pl_delete(pl);
@@ -514,12 +523,12 @@ static void pl_mark_selected_pl(void)
 }
 
 typedef struct simple_track *(*pl_shuffled_move)(struct playlist *pl,
-		struct simple_track *cur);
+												 struct simple_track *cur);
 typedef struct simple_track *(*pl_normal_move)(struct playlist *pl,
-		struct simple_track *cur);
+											   struct simple_track *cur);
 
 static struct track_info *pl_goto_generic(pl_shuffled_move shuffled,
-		pl_normal_move normal)
+										  pl_normal_move normal)
 {
 	if (!pl_playing_track)
 		return pl_play_first_in_pl_playing();
@@ -549,7 +558,8 @@ static void pl_clear_visible_pl(void)
 static int pl_name_exists(const char *name)
 {
 	struct playlist *pl;
-	list_for_each_entry(pl, &pl_head, node) {
+	list_for_each_entry(pl, &pl_head, node)
+	{
 		if (strcmp(pl->name, name) == 0)
 			return 1;
 	}
@@ -558,12 +568,14 @@ static int pl_name_exists(const char *name)
 
 static int pl_check_new_pl_name(const char *name)
 {
-	if (strchr(name, '/')) {
+	if (strchr(name, '/'))
+	{
 		error_msg("playlists cannot contain the '/' character");
 		return 0;
 	}
 
-	if (pl_name_exists(name)) {
+	if (pl_name_exists(name))
+	{
 		error_msg("another playlist named %s already exists", name);
 		return 0;
 	}
@@ -578,8 +590,10 @@ static char *pl_create_name(const char *file)
 	char *name = xnew(char, file_len + 10);
 	strcpy(name, file);
 
-	for (int i = 1; pl_name_exists(name); i++) {
-		if (i == 100) {
+	for (int i = 1; pl_name_exists(name); i++)
+	{
+		if (i == 100)
+		{
 			free(name);
 			return NULL;
 		}
@@ -618,7 +632,7 @@ void pl_init(void)
 	/* pl_visible set by window_set_contents */
 	pl_marked = pl_visible;
 
-	struct iter iter = { 0 };
+	struct iter iter = {0};
 	pl_searchable = searchable_new(NULL, &iter, &pl_searchable_ops);
 }
 
@@ -641,13 +655,15 @@ void pl_save(void)
 void pl_import(const char *path)
 {
 	const char *file = get_filename(path);
-	if (!file) {
+	if (!file)
+	{
 		error_msg("\"%s\" is not a valid path", path);
 		return;
 	}
 
 	char *name = pl_create_name(file);
-	if (!name) {
+	if (!name)
+	{
 		error_msg("a playlist named \"%s\" already exists ", file);
 		return;
 	}
@@ -700,8 +716,10 @@ struct track_info *pl_play_selected_row(void)
 
 	struct track_info *rv = NULL;
 
-	if (!pl_cursor_in_track_window) {
-		if (shuffle && !pl_empty(pl_visible)) {
+	if (!pl_cursor_in_track_window)
+	{
+		if (shuffle && !pl_empty(pl_visible))
+		{
 			struct shuffle_info *si = shuffle_list_get_next(&pl_visible->shuffle_root, NULL, NULL);
 			struct simple_track *track = shuffle_info_to_simple_track(si);
 			rv = pl_play_track(pl_visible, track, true);
@@ -711,7 +729,8 @@ struct track_info *pl_play_selected_row(void)
 	if (!rv)
 		rv = pl_play_selected_track();
 
-	if (shuffle && rv && (pl_playing == prev_pl) && prev_track) {
+	if (shuffle && rv && (pl_playing == prev_pl) && prev_track)
+	{
 		struct shuffle_info *prev_si = &prev_track->shuffle_info;
 		struct shuffle_info *cur_si = &pl_playing_track->shuffle_info;
 		shuffle_insert(&pl_playing->shuffle_root, prev_si, cur_si);
@@ -745,7 +764,8 @@ void pl_select_playing_track(void)
 
 void pl_reshuffle(void)
 {
-	if (pl_playing) {
+	if (pl_playing)
+	{
 		shuffle_list_reshuffle(&pl_playing->shuffle_root);
 		if (pl_playing_track)
 			shuffle_insert(&pl_playing->shuffle_root, NULL, &pl_playing_track->shuffle_info);
@@ -766,7 +786,7 @@ void pl_set_sort_str(const char *buf)
 
 	editable_shared_set_sort_keys(&pl_editable_shared, keys);
 	sort_keys_to_str(keys, pl_editable_shared.sort_str,
-			sizeof(pl_editable_shared.sort_str));
+					 sizeof(pl_editable_shared.sort_str));
 
 	struct playlist *pl;
 	list_for_each_entry(pl, &pl_head, node)
@@ -836,9 +856,12 @@ int pl_for_each_sel(track_info_cb cb, void *data, int reverse, int advance)
 		return editable_for_each(&pl_visible->editable, cb, data, reverse);
 }
 
-#define pl_tw_only(cmd) if (!pl_cursor_in_track_window) { \
-	info_msg(":%s only works in the track window", cmd); \
-} else
+#define pl_tw_only(cmd)                                      \
+	if (!pl_cursor_in_track_window)                          \
+	{                                                        \
+		info_msg(":%s only works in the track window", cmd); \
+	}                                                        \
+	else
 
 void pl_invert_marks(void)
 {
@@ -952,7 +975,7 @@ void pl_list_iter_to_info(struct iter *iter, struct pl_list_info *info)
 }
 
 void pl_draw(void (*list)(struct window *win),
-		void (*tracks)(struct window *win), int full)
+			 void (*tracks)(struct window *win), int full)
 {
 	if (full || pl_list_win->changed)
 		list(pl_list_win);
@@ -1002,8 +1025,10 @@ const char *pl_marked_pl_name(void)
 void pl_set_marked_pl_by_name(const char *name)
 {
 	struct playlist *pl;
-	list_for_each_entry(pl, &pl_head, node) {
-		if (strcmp(pl->name, name) == 0) {
+	list_for_each_entry(pl, &pl_head, node)
+	{
+		if (strcmp(pl->name, name) == 0)
+		{
 			pl_marked = pl;
 			return;
 		}
@@ -1023,7 +1048,8 @@ int pl_playing_pl_row(void)
 	if (!pl_playing_track)
 		return n;
 
-	list_for_each(li, &pl_playing->editable.head) {
+	list_for_each(li, &pl_playing->editable.head)
+	{
 		if (li == &pl_playing_track->node)
 			break;
 		n++;

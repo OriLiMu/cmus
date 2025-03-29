@@ -53,7 +53,11 @@
 #include <ctype.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+static void cmd_pinyin_index(char *arg);
 #include <dirent.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <stdarg.h>
 
 static struct history cmd_history;
 static char *cmd_history_filename;
@@ -61,11 +65,54 @@ static char *history_search_text = NULL;
 static int arg_expand_cmd = -1;
 static int mute_vol_l = 0, mute_vol_r = 0;
 
+// 调试文件处理函数
+static FILE *cmd_debug_fp = NULL;
+
+static void cmd_debug_init(void)
+{
+	if (!cmd_debug_fp)
+	{
+		cmd_debug_fp = fopen("/tmp/cmus_cmd_debug.log", "w");
+		if (cmd_debug_fp)
+		{
+			fprintf(cmd_debug_fp, "===== CMUS COMMAND DEBUG LOG STARTED =====\n");
+			fflush(cmd_debug_fp);
+		}
+	}
+}
+
+static void cmd_debug_log(const char *format, ...)
+{
+	if (!cmd_debug_fp)
+	{
+		cmd_debug_init();
+		if (!cmd_debug_fp)
+			return;
+	}
+
+	va_list ap;
+	va_start(ap, format);
+	vfprintf(cmd_debug_fp, format, ap);
+	va_end(ap);
+	fflush(cmd_debug_fp);
+}
+
+static void cmd_debug_close(void)
+{
+	if (cmd_debug_fp)
+	{
+		fprintf(cmd_debug_fp, "===== CMUS COMMAND DEBUG LOG CLOSED =====\n");
+		fclose(cmd_debug_fp);
+		cmd_debug_fp = NULL;
+	}
+}
+
 /* view {{{ */
 
 void view_clear(int view)
 {
-	switch (view) {
+	switch (view)
+	{
 	case TREE_VIEW:
 	case SORTED_VIEW:
 		worker_remove_jobs_by_type(JOB_TYPE_LIB);
@@ -93,14 +140,16 @@ void view_add(int view, char *arg, int prepend)
 
 	tmp = expand_filename(arg);
 	ft = cmus_detect_ft(tmp, &name);
-	if (ft == FILE_TYPE_INVALID) {
+	if (ft == FILE_TYPE_INVALID)
+	{
 		error_msg("adding '%s': %s", tmp, strerror(errno));
 		free(tmp);
 		return;
 	}
 	free(tmp);
 
-	switch (view) {
+	switch (view)
+	{
 	case TREE_VIEW:
 	case SORTED_VIEW:
 		cmus_add(lib_add_track, name, ft, JOB_TYPE_LIB, 0, NULL);
@@ -109,12 +158,15 @@ void view_add(int view, char *arg, int prepend)
 		pl_add_file_to_marked_pl(name);
 		break;
 	case QUEUE_VIEW:
-		if (prepend) {
+		if (prepend)
+		{
 			cmus_add(play_queue_prepend, name, ft, JOB_TYPE_QUEUE,
-					0, NULL);
-		} else {
+					 0, NULL);
+		}
+		else
+		{
 			cmus_add(play_queue_append, name, ft, JOB_TYPE_QUEUE, 0,
-					NULL);
+					 NULL);
 		}
 		break;
 	default:
@@ -127,7 +179,8 @@ static char *view_load_prepare(char *arg)
 {
 	char *name, *tmp = expand_filename(arg);
 	enum file_type ft = cmus_detect_ft(tmp, &name);
-	if (ft == FILE_TYPE_INVALID) {
+	if (ft == FILE_TYPE_INVALID)
+	{
 		error_msg("loading '%s': %s", tmp, strerror(errno));
 		free(tmp);
 		return NULL;
@@ -136,7 +189,8 @@ static char *view_load_prepare(char *arg)
 
 	if (ft == FILE_TYPE_FILE)
 		ft = FILE_TYPE_PL;
-	if (ft != FILE_TYPE_PL) {
+	if (ft != FILE_TYPE_PL)
+	{
 		error_msg("loading '%s': not a playlist file", name);
 		free(name);
 		return NULL;
@@ -150,13 +204,14 @@ void view_load(int view, char *arg)
 	if (!name)
 		return;
 
-	switch (view) {
+	switch (view)
+	{
 	case TREE_VIEW:
 	case SORTED_VIEW:
 		worker_remove_jobs_by_type(JOB_TYPE_LIB);
 		editable_clear(&lib_editable);
 		cmus_add(lib_add_track, name, FILE_TYPE_PL, JOB_TYPE_LIB, 0,
-				NULL);
+				 NULL);
 		free(lib_filename);
 		lib_filename = name;
 		break;
@@ -167,19 +222,25 @@ void view_load(int view, char *arg)
 }
 
 static void do_save(for_each_ti_cb for_each_ti, const char *arg, char **filenamep,
-		save_ti_cb save_ti)
+					save_ti_cb save_ti)
 {
 	char *filename = *filenamep;
 
-	if (arg) {
-		if (strcmp(arg, "-") == 0) {
-			filename = (char *) arg;
-		} else {
+	if (arg)
+	{
+		if (strcmp(arg, "-") == 0)
+		{
+			filename = (char *)arg;
+		}
+		else
+		{
 			free(filename);
 			filename = xstrdup(arg);
 			*filenamep = filename;
 		}
-	} else if (!filename) {
+	}
+	else if (!filename)
+	{
 		error_msg("need a file as argument, no default stored yet");
 		return;
 	}
@@ -191,20 +252,25 @@ static void do_save(for_each_ti_cb for_each_ti, const char *arg, char **filename
 void view_save(int view, char *arg, int to_stdout, int filtered, int extended)
 {
 	char **dest;
-	save_ti_cb     save_ti         = extended ? cmus_save_ext         : cmus_save;
+	save_ti_cb save_ti = extended ? cmus_save_ext : cmus_save;
 	for_each_ti_cb lib_for_each_ti = filtered ? lib_for_each_filtered : lib_for_each;
 
-	if (arg) {
-		if (to_stdout) {
+	if (arg)
+	{
+		if (to_stdout)
+		{
 			arg = xstrdup(arg);
-		} else {
+		}
+		else
+		{
 			char *tmp = expand_filename(arg);
 			arg = path_absolute(tmp);
 			free(tmp);
 		}
 	}
 
-	switch (view) {
+	switch (view)
+	{
 	case TREE_VIEW:
 	case SORTED_VIEW:
 		if (worker_has_job_by_type(JOB_TYPE_LIB))
@@ -245,7 +311,8 @@ static int do_parse_flags(const char **strp, const char *flags, int only_last)
 	if (str == NULL)
 		return flag;
 
-	while (*str && (only_last || !flag)) {
+	while (*str && (only_last || !flag))
+	{
 		if (*str != '-')
 			break;
 
@@ -254,7 +321,8 @@ static int do_parse_flags(const char **strp, const char *flags, int only_last)
 			break;
 
 		// "--" or "-- "
-		if (str[1] == '-' && (str[2] == 0 || str[2] == ' ')) {
+		if (str[1] == '-' && (str[2] == 0 || str[2] == ' '))
+		{
 			str += 2;
 			break;
 		}
@@ -264,7 +332,8 @@ static int do_parse_flags(const char **strp, const char *flags, int only_last)
 			break;
 
 		flag = str[1];
-		if (!strchr(flags, flag)) {
+		if (!strchr(flags, flag))
+		{
 			error_msg("invalid option -%c", flag);
 			return -1;
 		}
@@ -298,7 +367,8 @@ static int is_stdout_filename(const char *str)
 	if (!str)
 		return 0;
 
-	while (*str) {
+	while (*str)
+	{
 		if (*str != '-')
 			return 0;
 		// "-"
@@ -320,7 +390,8 @@ static int is_stdout_filename(const char *str)
 
 static int flag_to_view(int flag)
 {
-	switch (flag) {
+	switch (flag)
+	{
 	case 'l':
 	case 'L':
 		return TREE_VIEW;
@@ -336,7 +407,8 @@ static int flag_to_view(int flag)
 
 struct window *current_win(void)
 {
-	switch (cur_view) {
+	switch (cur_view)
+	{
 	case TREE_VIEW:
 		return lib_cur_win;
 	case SORTED_VIEW:
@@ -361,7 +433,8 @@ static void cmd_add(char *arg)
 
 	if (flag == -1)
 		return;
-	if (arg == NULL) {
+	if (arg == NULL)
+	{
 		error_msg("not enough arguments\n");
 		return;
 	}
@@ -374,7 +447,8 @@ static void cmd_clear(char *arg)
 
 	if (flag == -1)
 		return;
-	if (arg) {
+	if (arg)
+	{
 		error_msg("too many arguments\n");
 		return;
 	}
@@ -387,7 +461,8 @@ static void cmd_load(char *arg)
 
 	if (flag == -1)
 		return;
-	if (arg == NULL) {
+	if (arg == NULL)
+	{
 		error_msg("not enough arguments\n");
 		return;
 	}
@@ -399,7 +474,8 @@ static void cmd_save(char *arg)
 	int to_stdout = is_stdout_filename(arg);
 	int flag = 0, f, extended = 0;
 
-	do {
+	do
+	{
 		f = parse_one_flag((const char **)&arg, "eLlpq");
 		if (f == 'e')
 			extended = 1;
@@ -417,27 +493,37 @@ static void cmd_set(char *arg)
 	char *value = NULL;
 	int i;
 
-	for (i = 0; arg[i]; i++) {
-		if (arg[i] == '=') {
+	for (i = 0; arg[i]; i++)
+	{
+		if (arg[i] == '=')
+		{
 			arg[i] = 0;
 			value = &arg[i + 1];
 			break;
 		}
 	}
-	if (value) {
+	if (value)
+	{
 		option_set(arg, value);
 		help_win->changed = 1;
-		if (cur_view == TREE_VIEW) {
+		if (cur_view == TREE_VIEW)
+		{
 			lib_track_win->changed = 1;
 			lib_tree_win->changed = 1;
-		} else if (cur_view == PLAYLIST_VIEW) {
+		}
+		else if (cur_view == PLAYLIST_VIEW)
+		{
 			pl_mark_for_redraw();
-		} else {
+		}
+		else
+		{
 			current_win()->changed = 1;
 		}
 		update_titleline();
 		update_statusline();
-	} else {
+	}
+	else
+	{
 		struct cmus_opt *opt;
 		char buf[OPTION_MAX_SIZE];
 
@@ -447,7 +533,8 @@ static void cmd_set(char *arg)
 			arg[i] = 0;
 
 		opt = option_find(arg);
-		if (opt) {
+		if (opt)
+		{
 			opt->get(opt->data, buf, OPTION_MAX_SIZE);
 			info_msg("setting: '%s=%s'", arg, buf);
 		}
@@ -461,18 +548,24 @@ static void cmd_toggle(char *arg)
 	if (opt == NULL)
 		return;
 
-	if (opt->toggle == NULL) {
+	if (opt->toggle == NULL)
+	{
 		error_msg("%s is not toggle option", opt->name);
 		return;
 	}
 	opt->toggle(opt->data);
 	help_win->changed = 1;
-	if (cur_view == TREE_VIEW) {
+	if (cur_view == TREE_VIEW)
+	{
 		lib_track_win->changed = 1;
 		lib_tree_win->changed = 1;
-	} else if (cur_view == PLAYLIST_VIEW) {
+	}
+	else if (cur_view == PLAYLIST_VIEW)
+	{
 		pl_mark_for_redraw();
-	} else {
+	}
+	else
+	{
 		current_win()->changed = 1;
 	}
 	update_titleline();
@@ -483,7 +576,8 @@ static int get_number(char *str, char **end)
 {
 	int val = 0;
 
-	while (*str >= '0' && *str <= '9') {
+	while (*str >= '0' && *str <= '9')
+	{
 		val *= 10;
 		val += *str++ - '0';
 	}
@@ -496,7 +590,8 @@ static void cmd_seek(char *arg)
 	int relative = 0;
 	int seek = 0, sign = 1, count;
 
-	switch (*arg) {
+	switch (*arg)
+	{
 	case '-':
 		sign = -1;
 		/* fallthrough */
@@ -509,14 +604,15 @@ static void cmd_seek(char *arg)
 	count = 0;
 	goto inside;
 
-	do {
+	do
+	{
 		int num;
 		char *end;
 
 		if (*arg != ':')
 			break;
 		arg++;
-inside:
+	inside:
 		num = get_number(arg, &end);
 		if (arg == end)
 			break;
@@ -528,8 +624,10 @@ inside:
 	if (!count)
 		goto err;
 
-	if (count == 1) {
-		switch (tolower((unsigned char)*arg)) {
+	if (count == 1)
+	{
+		switch (tolower((unsigned char)*arg))
+		{
 		case 'h':
 			seek *= 60;
 			/* fallthrough */
@@ -542,7 +640,8 @@ inside:
 		}
 	}
 
-	if (!*arg) {
+	if (!*arg)
+	{
 		player_seek(seek, relative, 0);
 		return;
 	}
@@ -557,7 +656,20 @@ static void cmd_factivate(char *arg)
 
 static void cmd_live_filter(char *arg)
 {
+	// 添加调试信息
+	cmd_debug_log("DEBUG: cmd_live_filter called with arg = %s\n", arg ? arg : "NULL");
+
+	// 添加对空参数的检查
+	if (arg == NULL || arg[0] == '\0')
+	{
+		cmd_debug_log("DEBUG: arg is NULL or empty, clearing filter\n");
+		// 如果参数为空，则清除当前的过滤器
+		filters_set_live(NULL);
+		return;
+	}
+	cmd_debug_log("DEBUG: calling filters_set_live with arg = %s\n", arg);
 	filters_set_live(arg);
+	cmd_debug_log("DEBUG: cmd_live_filter completed\n");
 }
 
 static void cmd_filter(char *arg)
@@ -577,7 +689,8 @@ static void cmd_help(char *arg)
 
 static void cmd_invert(char *arg)
 {
-	switch (cur_view) {
+	switch (cur_view)
+	{
 	case SORTED_VIEW:
 		editable_invert_marks(&lib_editable);
 		break;
@@ -594,7 +707,8 @@ static void cmd_invert(char *arg)
 
 static void cmd_mark(char *arg)
 {
-	switch (cur_view) {
+	switch (cur_view)
+	{
 	case SORTED_VIEW:
 		editable_mark(&lib_editable, arg);
 		break;
@@ -611,7 +725,8 @@ static void cmd_mark(char *arg)
 
 static void cmd_unmark(char *arg)
 {
-	switch (cur_view) {
+	switch (cur_view)
+	{
 	case SORTED_VIEW:
 		editable_unmark(&lib_editable);
 		break;
@@ -634,22 +749,31 @@ static void cmd_update_cache(char *arg)
 
 static void cmd_cd(char *arg)
 {
-	if (arg) {
+	if (arg)
+	{
 		char *dir, *absolute;
 
 		dir = expand_filename(arg);
 		absolute = path_absolute(dir);
-		if (chdir(dir) == -1) {
+		if (chdir(dir) == -1)
+		{
 			error_msg("could not cd to '%s': %s", dir, strerror(errno));
-		} else {
+		}
+		else
+		{
 			browser_chdir(absolute);
 		}
 		free(absolute);
 		free(dir);
-	} else {
-		if (chdir(home_dir) == -1) {
+	}
+	else
+	{
+		if (chdir(home_dir) == -1)
+		{
 			error_msg("could not cd to '%s': %s", home_dir, strerror(errno));
-		} else {
+		}
+		else
+		{
 			browser_chdir(home_dir);
 		}
 	}
@@ -743,10 +867,13 @@ static void cmd_quit(char *arg)
 {
 	int flag = parse_flags((const char **)&arg, "i");
 	enum ui_query_answer answer;
-	if (!worker_has_job_by_type(JOB_TYPE_ANY)) {
+	if (!worker_has_job_by_type(JOB_TYPE_ANY))
+	{
 		if (flag != 'i' || yes_no_query("Quit cmus? [y/N]") != UI_QUERY_ANSWER_NO)
 			cmus_running = 0;
-	} else {
+	}
+	else
+	{
 		answer = yes_no_query("Tracks are being added. Quit and truncate playlist(s)? [y/N]");
 		if (answer != UI_QUERY_ANSWER_NO)
 			cmus_running = 0;
@@ -773,7 +900,8 @@ static void cmd_colorscheme(char *arg)
 	char filename[512];
 
 	snprintf(filename, sizeof(filename), "%s/%s.theme", cmus_config_dir, arg);
-	if (source_file(filename) == -1) {
+	if (source_file(filename) == -1)
+	{
 		snprintf(filename, sizeof(filename), "%s/%s.theme", cmus_data_dir, arg);
 		if (source_file(filename) == -1)
 			error_msg("sourcing %s: %s", filename, strerror(errno));
@@ -792,14 +920,16 @@ static char *parse_quoted(const char **strp)
 
 	str++;
 	start = str;
-	while (1) {
+	while (1)
+	{
 		int c = *str++;
 
 		if (c == 0)
 			goto error;
 		if (c == '"')
 			break;
-		if (c == '\\') {
+		if (c == '\\')
+		{
 			if (*str++ == 0)
 				goto error;
 		}
@@ -808,12 +938,14 @@ static char *parse_quoted(const char **strp)
 	ret = xnew(char, str - start);
 	str = start;
 	dst = ret;
-	while (1) {
+	while (1)
+	{
 		int c = *str++;
 
 		if (c == '"')
 			break;
-		if (c == '\\') {
+		if (c == '\\')
+		{
 			c = *str++;
 			if (c != '"' && c != '\\')
 				*dst++ = '\\';
@@ -834,14 +966,16 @@ static char *parse_escaped(const char **strp)
 	char *ret, *dst;
 
 	start = str;
-	while (1) {
+	while (1)
+	{
 		int c = *str;
 
 		if (c == 0 || c == ' ' || c == '\'' || c == '"')
 			break;
 
 		str++;
-		if (c == '\\') {
+		if (c == '\\')
+		{
 			c = *str;
 			if (c == 0)
 				break;
@@ -852,16 +986,19 @@ static char *parse_escaped(const char **strp)
 	ret = xnew(char, str - start + 1);
 	str = start;
 	dst = ret;
-	while (1) {
+	while (1)
+	{
 		int c = *str;
 
 		if (c == 0 || c == ' ' || c == '\'' || c == '"')
 			break;
 
 		str++;
-		if (c == '\\') {
+		if (c == '\\')
+		{
 			c = *str;
-			if (c == 0) {
+			if (c == 0)
+			{
 				*dst++ = '\\';
 				break;
 			}
@@ -878,17 +1015,21 @@ static char *parse_one(const char **strp)
 	const char *str = *strp;
 	char *ret = NULL;
 
-	while (1) {
+	while (1)
+	{
 		char *part = NULL;
 		int c = *str;
 
 		if (!c || c == ' ')
 			break;
-		if (c == '"') {
+		if (c == '"')
+		{
 			part = parse_quoted(&str);
 			if (part == NULL)
 				goto error;
-		} else if (c == '\'') {
+		}
+		else if (c == '\'')
+		{
 			/* backslashes are normal chars inside single-quotes */
 			const char *end;
 
@@ -898,13 +1039,18 @@ static char *parse_one(const char **strp)
 				goto sq_missing;
 			part = xstrndup(str, end - str);
 			str = end + 1;
-		} else {
+		}
+		else
+		{
 			part = parse_escaped(&str);
 		}
 
-		if (ret == NULL) {
+		if (ret == NULL)
+		{
 			ret = xstrdup(part);
-		} else {
+		}
+		else
+		{
 			char *tmp = xstrjoin(ret, part);
 			free(ret);
 			ret = tmp;
@@ -926,30 +1072,35 @@ char **parse_cmd(const char *cmd, int *args_idx, int *ac)
 	int nr = 0;
 	int alloc = 0;
 
-	while (*cmd) {
+	while (*cmd)
+	{
 		char *arg;
 
 		/* there can't be spaces at start of command
 		 * and there is at least one argument */
-		if (cmd[0] == '{' && cmd[1] == '}' && (cmd[2] == ' ' || cmd[2] == 0)) {
+		if (cmd[0] == '{' && cmd[1] == '}' && (cmd[2] == ' ' || cmd[2] == 0))
+		{
 			/* {} is replaced with file arguments */
 			if (*args_idx != -1)
 				goto only_once_please;
 			*args_idx = nr;
 			cmd += 2;
 			goto skip_spaces;
-		} else {
+		}
+		else
+		{
 			arg = parse_one(&cmd);
 			if (arg == NULL)
 				goto error;
 		}
 
-		if (nr == alloc) {
+		if (nr == alloc)
+		{
 			alloc = alloc ? alloc * 2 : 4;
 			av = xrenew(char *, av, alloc + 1);
 		}
 		av[nr++] = arg;
-skip_spaces:
+	skip_spaces:
 		while (*cmd == ' ')
 			cmd++;
 	}
@@ -965,7 +1116,8 @@ error:
 	return NULL;
 }
 
-struct track_info_selection {
+struct track_info_selection
+{
 	struct track_info **tis;
 	int tis_alloc;
 	int tis_nr;
@@ -974,7 +1126,8 @@ struct track_info_selection {
 static int add_ti(void *data, struct track_info *ti)
 {
 	struct track_info_selection *sel = data;
-	if (sel->tis_nr == sel->tis_alloc) {
+	if (sel->tis_nr == sel->tis_alloc)
+	{
 		sel->tis_alloc = sel->tis_alloc ? sel->tis_alloc * 2 : 8;
 		sel->tis = xrenew(struct track_info *, sel->tis, sel->tis_alloc);
 	}
@@ -987,20 +1140,23 @@ static void cmd_run(char *arg)
 {
 	char **av, **argv;
 	int ac, argc, i, run, files_idx = -1;
-	struct track_info_selection sel = { .tis = NULL };
+	struct track_info_selection sel = {.tis = NULL};
 
-	if (cur_view > QUEUE_VIEW) {
+	if (cur_view > QUEUE_VIEW)
+	{
 		info_msg("Command execution is supported only in views 1-4");
 		return;
 	}
 
 	av = parse_cmd(arg, &files_idx, &ac);
-	if (av == NULL) {
+	if (av == NULL)
+	{
 		return;
 	}
 
 	/* collect selected files (struct track_info) */
-	switch (cur_view) {
+	switch (cur_view)
+	{
 	case TREE_VIEW:
 		_tree_for_each_sel(add_ti, &sel, 0);
 		break;
@@ -1015,7 +1171,8 @@ static void cmd_run(char *arg)
 		break;
 	}
 
-	if (sel.tis_nr == 0) {
+	if (sel.tis_nr == 0)
+	{
 		/* no files selected, do nothing */
 		free_str_array(av);
 		return;
@@ -1025,13 +1182,16 @@ static void cmd_run(char *arg)
 	/* build argv */
 	argv = xnew(char *, ac + sel.tis_nr + 1);
 	argc = 0;
-	if (files_idx == -1) {
+	if (files_idx == -1)
+	{
 		/* add selected files after rest of the args */
 		for (i = 0; i < ac; i++)
 			argv[argc++] = av[i];
 		for (i = 0; i < sel.tis_nr; i++)
 			argv[argc++] = sel.tis[i]->filename;
-	} else {
+	}
+	else
+	{
 		for (i = 0; i < files_idx; i++)
 			argv[argc++] = av[i];
 		for (i = 0; i < sel.tis_nr; i++)
@@ -1045,19 +1205,26 @@ static void cmd_run(char *arg)
 		d_print("ARG: '%s'\n", argv[i]);
 
 	run = 1;
-	if (confirm_run && (sel.tis_nr > 1 || strcmp(argv[0], "rm") == 0)) {
-		if (yes_no_query("Execute %s for the %d selected files? [y/N]", arg, sel.tis_nr) != UI_QUERY_ANSWER_YES) {
+	if (confirm_run && (sel.tis_nr > 1 || strcmp(argv[0], "rm") == 0))
+	{
+		if (yes_no_query("Execute %s for the %d selected files? [y/N]", arg, sel.tis_nr) != UI_QUERY_ANSWER_YES)
+		{
 			info_msg("Aborted");
 			run = 0;
 		}
 	}
-	if (run) {
+	if (run)
+	{
 		int status;
 
-		if (spawn(argv, &status, 1)) {
+		if (spawn(argv, &status, 1))
+		{
 			error_msg("executing %s: %s", argv[0], strerror(errno));
-		} else {
-			if (WIFEXITED(status)) {
+		}
+		else
+		{
+			if (WIFEXITED(status))
+			{
 				int rc = WEXITSTATUS(status);
 
 				if (rc)
@@ -1066,7 +1233,8 @@ static void cmd_run(char *arg)
 			if (WIFSIGNALED(status))
 				error_msg("%s received signal %d", argv[0], WTERMSIG(status));
 
-			switch (cur_view) {
+			switch (cur_view)
+			{
 			case TREE_VIEW:
 			case SORTED_VIEW:
 				/* this must be done before sel.tis are unreffed */
@@ -1090,9 +1258,9 @@ static void cmd_run(char *arg)
 
 static void cmd_shell(char *arg)
 {
-	const char * const argv[] = { "sh", "-c", arg, NULL };
+	const char *const argv[] = {"sh", "-c", arg, NULL};
 
-	if (spawn((char **) argv, NULL, 0))
+	if (spawn((char **)argv, NULL, 0))
 		error_msg("executing '%s': %s", arg, strerror(errno));
 }
 
@@ -1111,7 +1279,8 @@ static void cmd_echo(char *arg)
 	struct track_info *sel_ti;
 	char *ptr = arg;
 
-	while (1) {
+	while (1)
+	{
 		ptr = strchr(ptr, '{');
 		if (ptr == NULL)
 			break;
@@ -1120,12 +1289,14 @@ static void cmd_echo(char *arg)
 		ptr++;
 	}
 
-	if (ptr == NULL) {
+	if (ptr == NULL)
+	{
 		info_msg("%s", arg);
 		return;
 	}
 
-	if (cur_view > QUEUE_VIEW) {
+	if (cur_view > QUEUE_VIEW)
+	{
 		info_msg("echo with {} in its arguments is supported only in views 1-4");
 		return;
 	}
@@ -1136,7 +1307,8 @@ static void cmd_echo(char *arg)
 	/* get only the first selected track */
 	sel_ti = NULL;
 
-	switch (cur_view) {
+	switch (cur_view)
+	{
 	case TREE_VIEW:
 		_tree_for_each_sel(get_one_ti, &sel_ti, 0);
 		break;
@@ -1163,16 +1335,20 @@ static int parse_vol_arg(const char *arg, int *value, unsigned int *flags)
 	unsigned int f = 0;
 	int ch, val = 0, digits = 0, sign = 1;
 
-	if (*arg == '-') {
+	if (*arg == '-')
+	{
 		arg++;
 		f |= VF_RELATIVE;
 		sign = -1;
-	} else if (*arg == '+') {
+	}
+	else if (*arg == '+')
+	{
 		arg++;
 		f |= VF_RELATIVE;
 	}
 
-	while (1) {
+	while (1)
+	{
 		ch = *arg++;
 		if (ch < '0' || ch > '9')
 			break;
@@ -1183,7 +1359,8 @@ static int parse_vol_arg(const char *arg, int *value, unsigned int *flags)
 	if (digits == 0)
 		goto err;
 
-	if (ch == '%') {
+	if (ch == '%')
+	{
 		f |= VF_PERCENTAGE;
 		ch = *arg;
 	}
@@ -1202,34 +1379,42 @@ static void cmd_mute(char *arg)
 	int l = 0, r = 0;
 	int *vl, *vr;
 
-	if (soft_vol) {
+	if (soft_vol)
+	{
 		vl = &soft_vol_l;
 		vr = &soft_vol_r;
-	} else {
+	}
+	else
+	{
 		vl = &volume_l;
 		vr = &volume_r;
 	}
 
-	if (*vl == 0 && *vr == 0) {
+	if (*vl == 0 && *vr == 0)
+	{
 		// unmute
 		l = mute_vol_l;
 		r = mute_vol_r;
-	} else {
+	}
+	else
+	{
 		mute_vol_l = *vl;
 		mute_vol_r = *vr;
 	}
 
 	int rc = player_set_vol(l, 0, r, 0);
-	if (rc != OP_ERROR_SUCCESS) {
+	if (rc != OP_ERROR_SUCCESS)
+	{
 		char *msg = op_get_error_msg(rc, "can't change volume");
 		error_msg("%s", msg);
 		free(msg);
-	} else {
+	}
+	else
+	{
 		mpris_volume_changed();
 	}
 	update_statusline();
 }
-
 
 /*
  * :vol value [value]
@@ -1256,11 +1441,14 @@ static void cmd_vol(char *arg)
 	free_str_array(values);
 
 	int rc = player_set_vol(l, lf, r, rf);
-	if (rc != OP_ERROR_SUCCESS) {
+	if (rc != OP_ERROR_SUCCESS)
+	{
 		char *msg = op_get_error_msg(rc, "can't change volume");
 		error_msg("%s", msg);
 		free(msg);
-	} else {
+	}
+	else
+	{
 		mpris_volume_changed();
 	}
 	update_statusline();
@@ -1272,7 +1460,8 @@ err:
 
 static void cmd_prev_view(char *arg)
 {
-	if (prev_view >= 0) {
+	if (prev_view >= 0)
+	{
 		set_view(prev_view);
 	}
 }
@@ -1281,11 +1470,15 @@ static void cmd_left_view(char *arg)
 {
 	int flag = parse_flags((const char **)&arg, "n");
 
-	if (cur_view == TREE_VIEW) {
-		if (flag != 'n') {
+	if (cur_view == TREE_VIEW)
+	{
+		if (flag != 'n')
+		{
 			set_view(HELP_VIEW);
 		}
-	} else {
+	}
+	else
+	{
 		set_view(cur_view - 1);
 	}
 }
@@ -1294,11 +1487,15 @@ static void cmd_right_view(char *arg)
 {
 	int flag = parse_flags((const char **)&arg, "n");
 
-	if (cur_view == HELP_VIEW) {
-		if (flag != 'n') {
+	if (cur_view == HELP_VIEW)
+	{
+		if (flag != 'n')
+		{
 			set_view(TREE_VIEW);
 		}
-	} else {
+	}
+	else
+	{
 		set_view(cur_view + 1);
 	}
 }
@@ -1320,7 +1517,8 @@ static char *get_browser_add_file(void)
 {
 	char *sel = browser_get_sel();
 
-	if (sel && (ends_with(sel, "/../") || ends_with(sel, "/.."))) {
+	if (sel && (ends_with(sel, "/../") || ends_with(sel, "/..")))
+	{
 		info_msg("For convenience, you can not add \"..\" directory from the browser view");
 		free(sel);
 		sel = NULL;
@@ -1340,7 +1538,8 @@ static void cmd_pl_import(char *arg)
 	else
 		error_msg("not enough arguments");
 
-	if (name) {
+	if (name)
+	{
 		pl_import(name);
 		free(name);
 	}
@@ -1372,7 +1571,8 @@ static void cmd_view(char *arg)
 {
 	int view;
 
-	if (parse_enum(arg, 1, NR_VIEWS, view_names, &view) && (view - 1) != cur_view) {
+	if (parse_enum(arg, 1, NR_VIEWS, view_names, &view) && (view - 1) != cur_view)
+	{
 		set_view(view - 1);
 	}
 }
@@ -1401,20 +1601,26 @@ static void cmd_p_pause_playback(char *arg)
 
 static void cmd_p_play(char *arg)
 {
-	if (arg) {
+	if (arg)
+	{
 		char *tmp = expand_filename(arg);
 		cmus_play_file(tmp);
 		free(tmp);
-	} else {
+	}
+	else
+	{
 		player_play();
 	}
 }
 
 static void cmd_p_prev(char *arg)
 {
-	if (rewind_offset < 0 || player_info.pos < rewind_offset) {
+	if (rewind_offset < 0 || player_info.pos < rewind_offset)
+	{
 		cmus_prev();
-	} else {
+	}
+	else
+	{
 		player_play();
 	}
 }
@@ -1437,7 +1643,8 @@ static void cmd_p_stop(char *arg)
 static void cmd_pwd(char *arg)
 {
 	char buf[4096];
-	if (getcwd(buf, sizeof buf)) {
+	if (getcwd(buf, sizeof buf))
+	{
 		info_msg("%s", buf);
 	}
 }
@@ -1449,7 +1656,8 @@ static void cmd_raise_vte(char *arg)
 
 static void cmd_rand(char *arg)
 {
-	switch (cur_view) {
+	switch (cur_view)
+	{
 	case TREE_VIEW:
 		break;
 	case SORTED_VIEW:
@@ -1466,7 +1674,8 @@ static void cmd_rand(char *arg)
 
 static void cmd_search_next(char *arg)
 {
-	if (search_str) {
+	if (search_str)
+	{
 		if (!search_next(searchable, search_str, search_direction))
 			search_not_found();
 	}
@@ -1474,7 +1683,8 @@ static void cmd_search_next(char *arg)
 
 static void cmd_search_prev(char *arg)
 {
-	if (search_str) {
+	if (search_str)
+	{
 		if (!search_next(searchable, search_str, !search_direction))
 			search_not_found();
 	}
@@ -1504,11 +1714,11 @@ static for_each_sel_ti_cb view_for_each_sel[4] = {
 	tree_for_each_sel,
 	sorted_for_each_sel,
 	pl_for_each_sel,
-	pq_for_each_sel
-};
+	pq_for_each_sel};
 
 /* wrapper for add_ti_cb, (void *) can't store function pointers */
-struct wrapper_cb_data {
+struct wrapper_cb_data
+{
 	add_ti_cb cb;
 };
 
@@ -1525,12 +1735,14 @@ static void add_from_browser(add_ti_cb add, int job_type, int advance)
 {
 	char *sel = get_browser_add_file();
 
-	if (sel) {
+	if (sel)
+	{
 		enum file_type ft;
 		char *ret;
 
 		ft = cmus_detect_ft(sel, &ret);
-		if (ft != FILE_TYPE_INVALID) {
+		if (ft != FILE_TYPE_INVALID)
+		{
 			cmus_add(add, ret, ft, job_type, 0, NULL);
 			if (advance)
 				window_down(browser_win, 1);
@@ -1549,10 +1761,13 @@ static void cmd_win_add_l(char *arg)
 	if (cur_view == TREE_VIEW || cur_view == SORTED_VIEW)
 		return;
 
-	if (cur_view <= QUEUE_VIEW) {
-		struct wrapper_cb_data add = { lib_add_track };
+	if (cur_view <= QUEUE_VIEW)
+	{
+		struct wrapper_cb_data add = {lib_add_track};
 		view_for_each_sel[cur_view](wrapper_cb, &add, 0, flag != 'n');
-	} else if (cur_view == BROWSER_VIEW) {
+	}
+	else if (cur_view == BROWSER_VIEW)
+	{
 		add_from_browser(lib_add_track, JOB_TYPE_LIB, flag != 'n');
 	}
 }
@@ -1566,12 +1781,16 @@ static void cmd_win_add_p(char *arg)
 	if (cur_view == PLAYLIST_VIEW && pl_visible_is_marked())
 		return;
 
-	if (cur_view <= QUEUE_VIEW) {
-		struct wrapper_cb_data add = { pl_add_track_to_marked_pl2 };
+	if (cur_view <= QUEUE_VIEW)
+	{
+		struct wrapper_cb_data add = {pl_add_track_to_marked_pl2};
 		view_for_each_sel[cur_view](wrapper_cb, &add, 0, flag != 'n');
-	} else if (cur_view == BROWSER_VIEW) {
+	}
+	else if (cur_view == BROWSER_VIEW)
+	{
 		char *sel = get_browser_add_file();
-		if (sel) {
+		if (sel)
+		{
 			if (pl_add_file_to_marked_pl(sel) && flag != 'n')
 				window_down(browser_win, 1);
 			free(sel);
@@ -1588,10 +1807,13 @@ static void cmd_win_add_Q(char *arg)
 	if (cur_view == QUEUE_VIEW)
 		return;
 
-	if (cur_view <= QUEUE_VIEW) {
-		struct wrapper_cb_data add = { play_queue_prepend };
+	if (cur_view <= QUEUE_VIEW)
+	{
+		struct wrapper_cb_data add = {play_queue_prepend};
 		view_for_each_sel[cur_view](wrapper_cb, &add, 1, flag != 'n');
-	} else if (cur_view == BROWSER_VIEW) {
+	}
+	else if (cur_view == BROWSER_VIEW)
+	{
 		add_from_browser(play_queue_prepend, JOB_TYPE_QUEUE, flag != 'n');
 	}
 }
@@ -1605,10 +1827,13 @@ static void cmd_win_add_q(char *arg)
 	if (cur_view == QUEUE_VIEW)
 		return;
 
-	if (cur_view <= QUEUE_VIEW) {
-		struct wrapper_cb_data add = { play_queue_append };
+	if (cur_view <= QUEUE_VIEW)
+	{
+		struct wrapper_cb_data add = {play_queue_append};
 		view_for_each_sel[cur_view](wrapper_cb, &add, 0, flag != 'n');
-	} else if (cur_view == BROWSER_VIEW) {
+	}
+	else if (cur_view == BROWSER_VIEW)
+	{
 		add_from_browser(play_queue_append, JOB_TYPE_QUEUE, flag != 'n');
 	}
 }
@@ -1619,19 +1844,24 @@ static void cmd_win_activate(char *arg)
 	struct shuffle_info *previous = NULL, *next = NULL;
 	struct rb_root *shuffle_root = NULL;
 
-	if (cur_view == TREE_VIEW || cur_view == SORTED_VIEW) {
-		if (shuffle == SHUFFLE_TRACKS) {
+	if (cur_view == TREE_VIEW || cur_view == SORTED_VIEW)
+	{
+		if (shuffle == SHUFFLE_TRACKS)
+		{
 			if (lib_cur_track)
 				previous = &lib_cur_track->simple_track.shuffle_info;
 			shuffle_root = &lib_shuffle_root;
-		} else if (shuffle == SHUFFLE_ALBUMS) {
+		}
+		else if (shuffle == SHUFFLE_ALBUMS)
+		{
 			if (lib_cur_track)
 				previous = &lib_cur_track->album->shuffle_info;
 			shuffle_root = &lib_album_shuffle_root;
 		}
 	}
 
-	switch (cur_view) {
+	switch (cur_view)
+	{
 	case TREE_VIEW:
 		info = tree_activate_selected();
 		if (shuffle == SHUFFLE_TRACKS)
@@ -1662,7 +1892,8 @@ static void cmd_win_activate(char *arg)
 		break;
 	}
 
-	if (info) {
+	if (info)
+	{
 		if (shuffle && next)
 			shuffle_insert(shuffle_root, previous, next);
 		/* update lib/pl mode */
@@ -1677,7 +1908,8 @@ static void cmd_win_activate(char *arg)
 
 static void cmd_win_mv_after(char *arg)
 {
-	switch (cur_view) {
+	switch (cur_view)
+	{
 	case SORTED_VIEW:
 		editable_move_after(&lib_editable);
 		break;
@@ -1692,7 +1924,8 @@ static void cmd_win_mv_after(char *arg)
 
 static void cmd_win_mv_before(char *arg)
 {
-	switch (cur_view) {
+	switch (cur_view)
+	{
 	case SORTED_VIEW:
 		editable_move_before(&lib_editable);
 		break;
@@ -1707,7 +1940,8 @@ static void cmd_win_mv_before(char *arg)
 
 static void cmd_win_remove(char *arg)
 {
-	switch (cur_view) {
+	switch (cur_view)
+	{
 	case TREE_VIEW:
 		tree_remove_sel();
 		break;
@@ -1734,7 +1968,8 @@ static void cmd_win_remove(char *arg)
 
 static void cmd_win_sel_cur(char *arg)
 {
-	switch (cur_view) {
+	switch (cur_view)
+	{
 	case TREE_VIEW:
 		tree_sel_current(auto_expand_albums_selcur);
 		break;
@@ -1749,7 +1984,8 @@ static void cmd_win_sel_cur(char *arg)
 
 static void cmd_win_toggle(char *arg)
 {
-	switch (cur_view) {
+	switch (cur_view)
+	{
 	case TREE_VIEW:
 		tree_toggle_expand_artist();
 		break;
@@ -1791,8 +2027,10 @@ static void cmd_win_down(char *arg)
 	unsigned num_rows = 1;
 	char *end;
 
-	if (arg) {
-		if ((num_rows = get_number(arg, &end)) == 0 || *end) {
+	if (arg)
+	{
+		if ((num_rows = get_number(arg, &end)) == 0 || *end)
+		{
 			error_msg("invalid argument\n");
 			return;
 		}
@@ -1846,17 +2084,8 @@ static void cmd_win_pg_middle(char *arg)
 
 static void cmd_win_update_cache(char *arg)
 {
-	struct track_info_selection sel = { .tis = NULL };
 	int flag = parse_flags((const char **)&arg, "f");
-
-	if (cur_view != TREE_VIEW && cur_view != SORTED_VIEW)
-		return;
-
-	view_for_each_sel[cur_view](add_ti, &sel, 0, 1);
-	if (sel.tis_nr == 0)
-		return;
-	sel.tis[sel.tis_nr] = NULL;
-	cmus_update_tis(sel.tis, sel.tis_nr, flag == 'f');
+	cmus_update_cache(flag == 'f');
 }
 
 static void cmd_win_top(char *arg)
@@ -1869,8 +2098,10 @@ static void cmd_win_up(char *arg)
 	unsigned num_rows = 1;
 	char *end;
 
-	if (arg) {
-		if ((num_rows = get_number(arg, &end)) == 0 || *end) {
+	if (arg)
+	{
+		if ((num_rows = get_number(arg, &end)) == 0 || *end)
+		{
 			error_msg("invalid argument\n");
 			return;
 		}
@@ -1881,7 +2112,8 @@ static void cmd_win_up(char *arg)
 
 static void cmd_win_update(char *arg)
 {
-	switch (cur_view) {
+	switch (cur_view)
+	{
 	case TREE_VIEW:
 	case SORTED_VIEW:
 		cmus_update_lib();
@@ -1902,7 +2134,7 @@ static void cmd_browser_up(char *arg)
 
 static void cmd_refresh(char *arg)
 {
-	clearok(curscr, TRUE);
+	clearok(curscr, 1);
 	refresh();
 }
 
@@ -1919,7 +2151,8 @@ static int *rand_array(int size, int nmax)
 	int i, offset = 0;
 	int count = size;
 
-	if (count > nmax / 2) {
+	if (count > nmax / 2)
+	{
 		/*
 		 * Imagine that there are 1000 tracks in library and we want to
 		 * add 998 random tracks to queue.  After we have added 997
@@ -1938,11 +2171,13 @@ static int *rand_array(int size, int nmax)
 		offset = size - count;
 	}
 
-	for (i = 0; i < count; ) {
+	for (i = 0; i < count;)
+	{
 		int v, j;
-found:
+	found:
 		v = rand() % nmax;
-		for (j = 0; j < i; j++) {
+		for (j = 0; j < i; j++)
+		{
 			if (r[offset + j] == v)
 				goto found;
 		}
@@ -1950,7 +2185,8 @@ found:
 	}
 	qsort(r + offset, count, sizeof(*r), cmp_intp);
 
-	if (offset) {
+	if (offset)
+	{
 		int j, n;
 
 		/* simplifies next loop */
@@ -1960,7 +2196,8 @@ found:
 		i = 0;
 		j = offset;
 		n = 0;
-		do {
+		do
+		{
 			while (n < r[j])
 				r[i++] = n++;
 			j++;
@@ -1976,14 +2213,16 @@ static int count_albums(void)
 	struct rb_node *tmp1, *tmp2;
 	int count = 0;
 
-	rb_for_each_entry(artist, tmp1, &lib_artist_root, tree_node) {
+	rb_for_each_entry(artist, tmp1, &lib_artist_root, tree_node)
+	{
 		rb_for_each(tmp2, &artist->album_root)
 			count++;
 	}
 	return count;
 }
 
-struct album_list {
+struct album_list
+{
 	struct list_head node;
 	const struct album *album;
 };
@@ -1996,10 +2235,12 @@ static void cmd_lqueue(char *arg)
 	int count = 1, nmax, i, pos;
 	int *r;
 
-	if (arg) {
+	if (arg)
+	{
 		long int val;
 
-		if (str_to_int(arg, &val) || val <= 0) {
+		if (str_to_int(arg, &val) || val <= 0)
+		{
 			error_msg("argument must be positive integer");
 			return;
 		}
@@ -2014,15 +2255,20 @@ static void cmd_lqueue(char *arg)
 	r = rand_array(count, nmax);
 	album = to_album(rb_first(&to_artist(rb_first(&lib_artist_root))->album_root));
 	pos = 0;
-	for (i = 0; i < count; i++) {
+	for (i = 0; i < count; i++)
+	{
 		struct album_list *a;
 
-		while (pos < r[i]) {
+		while (pos < r[i])
+		{
 			struct artist *artist = album->artist;
-			if (!rb_next(&album->tree_node)) {
+			if (!rb_next(&album->tree_node))
+			{
 				artist = to_artist(rb_next(&artist->tree_node));
 				album = to_album(rb_first(&artist->album_root));
-			} else {
+			}
+			else
+			{
 				album = to_album(rb_next(&album->tree_node));
 			}
 			pos++;
@@ -2034,7 +2280,8 @@ static void cmd_lqueue(char *arg)
 	free(r);
 
 	item = head.next;
-	do {
+	do
+	{
 		struct list_head *next = item->next;
 		struct album_list *a = container_of(item, struct album_list, node);
 		struct tree_track *t;
@@ -2047,7 +2294,8 @@ static void cmd_lqueue(char *arg)
 	} while (item != &head);
 }
 
-struct track_list {
+struct track_list
+{
 	struct list_head node;
 	const struct simple_track *track;
 };
@@ -2059,10 +2307,12 @@ static void cmd_tqueue(char *arg)
 	int count = 1, i, pos;
 	int *r;
 
-	if (arg) {
+	if (arg)
+	{
 		long int val;
 
-		if (str_to_int(arg, &val) || val <= 0) {
+		if (str_to_int(arg, &val) || val <= 0)
+		{
 			error_msg("argument must be positive integer");
 			return;
 		}
@@ -2076,10 +2326,12 @@ static void cmd_tqueue(char *arg)
 	r = rand_array(count, lib_editable.nr_tracks);
 	item = lib_editable.head.next;
 	pos = 0;
-	for (i = 0; i < count; i++) {
+	for (i = 0; i < count; i++)
+	{
 		struct track_list *t;
 
-		while (pos < r[i]) {
+		while (pos < r[i])
+		{
 			item = item->next;
 			pos++;
 		}
@@ -2090,7 +2342,8 @@ static void cmd_tqueue(char *arg)
 	free(r);
 
 	item = head.next;
-	do {
+	do
+	{
 		struct list_head *next = item->next;
 		struct track_list *t = container_of(item, struct track_list, node);
 		play_queue_append(t->track->info, NULL);
@@ -2172,7 +2425,8 @@ static void expand_add(const char *str)
 		str = "";
 	expand_supported(str);
 
-	if (tabexp.head && flag) {
+	if (tabexp.head && flag)
+	{
 		snprintf(expbuf, sizeof(expbuf), "-%c %s", flag, tabexp.head);
 		free(tabexp.head);
 		tabexp.head = xstrdup(expbuf);
@@ -2193,7 +2447,8 @@ static void expand_program_paths_option(const char *str, const char *opt)
 {
 	expand_program_paths(str);
 
-	if (tabexp.head && opt) {
+	if (tabexp.head && opt)
+	{
 		snprintf(expbuf, sizeof(expbuf), "%s=%s", opt, tabexp.head);
 		free(tabexp.head);
 		tabexp.head = xstrdup(expbuf);
@@ -2210,7 +2465,8 @@ static void expand_load_save(const char *str)
 		str = "";
 	expand_playlist(str);
 
-	if (tabexp.head && flag) {
+	if (tabexp.head && flag)
+	{
 		snprintf(expbuf, sizeof(expbuf), "-%c %s", flag, tabexp.head);
 		free(tabexp.head);
 		tabexp.head = xstrdup(expbuf);
@@ -2224,7 +2480,8 @@ static void expand_key_context(const char *str, const char *force)
 
 	tails = xnew(char *, NR_CTXS);
 	pos = 0;
-	for (i = 0; key_context_names[i]; i++) {
+	for (i = 0; key_context_names[i]; i++)
+	{
 		int cmp = strncmp(str, key_context_names[i], len);
 		if (cmp > 0)
 			continue;
@@ -2233,11 +2490,13 @@ static void expand_key_context(const char *str, const char *force)
 		tails[pos++] = xstrdup(key_context_names[i] + len);
 	}
 
-	if (pos == 0) {
+	if (pos == 0)
+	{
 		free(tails);
 		return;
 	}
-	if (pos == 1) {
+	if (pos == 1)
+	{
 		char *tmp = xstrjoin(tails[0], " ");
 		free(tails[0]);
 		tails[0] = tmp;
@@ -2252,9 +2511,12 @@ static int get_context(const char *str, int len)
 {
 	int i, c = -1, count = 0;
 
-	for (i = 0; key_context_names[i]; i++) {
-		if (strncmp(str, key_context_names[i], len) == 0) {
-			if (key_context_names[i][len] == 0) {
+	for (i = 0; key_context_names[i]; i++)
+	{
+		if (strncmp(str, key_context_names[i], len) == 0)
+		{
+			if (key_context_names[i][len] == 0)
+			{
 				/* exact */
 				return i;
 			}
@@ -2296,14 +2558,16 @@ static void expand_bind_args(const char *str)
 
 	cs = str;
 	ce = strchr(cs, ' ');
-	if (ce == NULL) {
+	if (ce == NULL)
+	{
 		expand_key_context(cs, force);
 		return;
 	}
 
 	/* context must be expandable */
 	c = get_context(cs, ce - cs);
-	if (c == -1) {
+	if (c == -1)
+	{
 		/* context is ambiguous or invalid */
 		return;
 	}
@@ -2312,12 +2576,14 @@ static void expand_bind_args(const char *str)
 	while (*ks == ' ')
 		ks++;
 	ke = strchr(ks, ' ');
-	if (ke == NULL) {
+	if (ke == NULL)
+	{
 		/* expand key */
 		int len = strlen(ks);
 		PTR_ARRAY(array);
 
-		for (i = 0; key_table[i].name; i++) {
+		for (i = 0; key_table[i].name; i++)
+		{
 			int cmp = strncmp(ks, key_table[i].name, len);
 			if (cmp > 0)
 				continue;
@@ -2329,7 +2595,8 @@ static void expand_bind_args(const char *str)
 		if (!array.count)
 			return;
 
-		if (array.count == 1) {
+		if (array.count == 1)
+		{
 			char **ptrs = array.ptrs;
 			char *tmp = xstrjoin(ptrs[0], " ");
 			free(ptrs[0]);
@@ -2347,9 +2614,12 @@ static void expand_bind_args(const char *str)
 	/* key must be expandable */
 	k = -1;
 	count = 0;
-	for (i = 0; key_table[i].name; i++) {
-		if (strncmp(ks, key_table[i].name, ke - ks) == 0) {
-			if (key_table[i].name[ke - ks] == 0) {
+	for (i = 0; key_table[i].name; i++)
+	{
+		if (strncmp(ks, key_table[i].name, ke - ks) == 0)
+		{
+			if (key_table[i].name[ke - ks] == 0)
+			{
 				/* exact */
 				k = i;
 				count = 1;
@@ -2359,7 +2629,8 @@ static void expand_bind_args(const char *str)
 			count++;
 		}
 	}
-	if (count != 1) {
+	if (count != 1)
+	{
 		/* key is ambiguous or invalid */
 		return;
 	}
@@ -2373,7 +2644,8 @@ static void expand_bind_args(const char *str)
 
 	/* expand com [arg...] */
 	expand_command_line(fs);
-	if (tabexp.head == NULL) {
+	if (tabexp.head == NULL)
+	{
 		/* command expand failed */
 		return;
 	}
@@ -2386,7 +2658,7 @@ static void expand_bind_args(const char *str)
 	 */
 
 	snprintf(expbuf, sizeof(expbuf), "%s%s %s %s", force, key_context_names[c],
-			key_table[k].name, tabexp.head);
+			 key_table[k].name, tabexp.head);
 	free(tabexp.head);
 	tabexp.head = xstrdup(expbuf);
 }
@@ -2402,14 +2674,16 @@ static void expand_unbind_args(const char *str)
 
 	cs = str;
 	ce = strchr(cs, ' ');
-	if (ce == NULL) {
+	if (ce == NULL)
+	{
 		expand_key_context(cs, "");
 		return;
 	}
 
 	/* context must be expandable */
 	c = get_context(cs, ce - cs);
-	if (c == -1) {
+	if (c == -1)
+	{
 		/* context is ambiguous or invalid */
 		return;
 	}
@@ -2421,7 +2695,8 @@ static void expand_unbind_args(const char *str)
 	/* expand key */
 	len = strlen(ks);
 	b = key_bindings[c];
-	while (b) {
+	while (b)
+	{
 		if (!strncmp(ks, b->key->name, len))
 			ptr_array_add(&array, xstrdup(b->key->name + len));
 		b = b->next;
@@ -2446,7 +2721,8 @@ static void expand_factivate(const char *str)
 
 	str_len = strlen(str);
 	i = str_len;
-	while (i > 0) {
+	while (i > 0)
+	{
 		if (str[i - 1] == ' ')
 			break;
 		i--;
@@ -2454,7 +2730,8 @@ static void expand_factivate(const char *str)
 	len = str_len - i;
 	name = str + i;
 
-	list_for_each_entry(e, &filters_head, node) {
+	list_for_each_entry(e, &filters_head, node)
+	{
 		if (!strncmp(name, e->name, len))
 			ptr_array_add(&array, xstrdup(e->name + len));
 	}
@@ -2471,7 +2748,8 @@ static void expand_fset(const char *str)
 	struct filter_entry *e;
 	PTR_ARRAY(array);
 
-	list_for_each_entry(e, &filters_head, node) {
+	list_for_each_entry(e, &filters_head, node)
+	{
 		char *line = xnew(char, strlen(e->name) + strlen(e->filter) + 2);
 		sprintf(line, "%s=%s", e->name, e->filter);
 		if (!strncmp(str, line, strlen(str)))
@@ -2495,13 +2773,17 @@ static void expand_options(const char *str)
 	/* tabexp is resetted */
 	len = strlen(str);
 	sep = strchr(str, '=');
-	if (len > 1 && sep) {
+	if (len > 1 && sep)
+	{
 		/* expand value */
 		char *var = xstrndup(str, sep - str);
 
-		list_for_each_entry(opt, &option_head, node) {
-			if (strcmp(var, opt->name) == 0) {
-				if (str[len - 1] == '=') {
+		list_for_each_entry(opt, &option_head, node)
+		{
+			if (strcmp(var, opt->name) == 0)
+			{
+				if (str[len - 1] == '=')
+				{
 					char buf[OPTION_MAX_SIZE];
 
 					tails = xnew(char *, 1);
@@ -2513,25 +2795,32 @@ static void expand_options(const char *str)
 					tabexp.head = xstrdup(str);
 					tabexp.tails = tails;
 					tabexp.count = 1;
-				} else if (opt->flags & OPT_PROGRAM_PATH) {
+				}
+				else if (opt->flags & OPT_PROGRAM_PATH)
+				{
 					expand_program_paths_option(sep + 1, var);
 				}
 				break;
 			}
 		}
 		free(var);
-	} else {
+	}
+	else
+	{
 		/* expand variable */
 		int pos;
 
 		tails = xnew(char *, nr_options);
 		pos = 0;
-		list_for_each_entry(opt, &option_head, node) {
+		list_for_each_entry(opt, &option_head, node)
+		{
 			if (strncmp(str, opt->name, len) == 0)
 				tails[pos++] = xstrdup(opt->name + len);
 		}
-		if (pos > 0) {
-			if (pos == 1) {
+		if (pos > 0)
+		{
+			if (pos == 1)
+			{
 				/* only one variable matches, add '=' */
 				char *tmp = xstrjoin(tails[0], "=");
 
@@ -2542,7 +2831,9 @@ static void expand_options(const char *str)
 			tabexp.head = xstrdup(str);
 			tabexp.tails = tails;
 			tabexp.count = pos;
-		} else {
+		}
+		else
+		{
 			free(tails);
 		}
 	}
@@ -2557,17 +2848,21 @@ static void expand_toptions(const char *str)
 	tails = xnew(char *, nr_options);
 	len = strlen(str);
 	pos = 0;
-	list_for_each_entry(opt, &option_head, node) {
+	list_for_each_entry(opt, &option_head, node)
+	{
 		if (opt->toggle == NULL)
 			continue;
 		if (strncmp(str, opt->name, len) == 0)
 			tails[pos++] = xstrdup(opt->name + len);
 	}
-	if (pos > 0) {
+	if (pos > 0)
+	{
 		tabexp.head = xstrdup(str);
 		tabexp.tails = tails;
 		tabexp.count = pos;
-	} else {
+	}
+	else
+	{
 		free(tails);
 	}
 }
@@ -2581,7 +2876,8 @@ static void load_themes(const char *dirname, const char *str, struct ptr_array *
 	if (dir_open(&dir, dirname))
 		return;
 
-	while ((name = dir_read(&dir))) {
+	while ((name = dir_read(&dir)))
+	{
 		if (!S_ISREG(dir.st.st_mode))
 			continue;
 		if (strncmp(name, str, len))
@@ -2607,7 +2903,8 @@ static void expand_colorscheme(const char *str)
 	load_themes(cmus_config_dir, str, &array);
 	load_themes(cmus_data_dir, str, &array);
 
-	if (array.count) {
+	if (array.count)
+	{
 		ptr_array_sort(&array, strptrcmp);
 
 		tabexp.head = xstrdup(str);
@@ -2622,96 +2919,96 @@ static void expand_commands(const char *str);
 
 /* sort by name */
 struct command commands[] = {
-	{ "add",                   cmd_add,              1, 1,  expand_add,           0, 0          },
-	{ "bind",                  cmd_bind,             1, 1,  expand_bind_args,     0, CMD_UNSAFE },
-	{ "browser-up",            cmd_browser_up,       0, 0,  NULL,                 0, 0          },
-	{ "cd",                    cmd_cd,               0, 1,  expand_directories,   0, 0          },
-	{ "clear",                 cmd_clear,            0, 1,  NULL,                 0, 0          },
-	{ "colorscheme",           cmd_colorscheme,      1, 1,  expand_colorscheme,   0, 0          },
-	{ "echo",                  cmd_echo,             1, -1, NULL,                 0, 0          },
-	{ "factivate",             cmd_factivate,        0, 1,  expand_factivate,     0, 0          },
-	{ "filter",                cmd_filter,           0, 1,  NULL,                 0, 0          },
-	{ "fset",                  cmd_fset,             1, 1,  expand_fset,          0, 0          },
-	{ "help",                  cmd_help,             0, 0,  NULL,                 0, 0          },
-	{ "invert",                cmd_invert,           0, 0,  NULL,                 0, 0          },
-	{ "live-filter",           cmd_live_filter,      0, 1,  NULL,                 0, CMD_LIVE   },
-	{ "load",                  cmd_load,             1, 1,  expand_load_save,     0, 0          },
-	{ "lqueue",                cmd_lqueue,           0, 1,  NULL,                 0, 0          },
-	{ "mark",                  cmd_mark,             0, 1,  NULL,                 0, 0          },
-	{ "mute",                  cmd_mute,             0, 0,  NULL,                 0, 0          },
-	{ "player-next",           cmd_p_next,           0, 0,  NULL,                 0, 0          },
-	{ "player-next-album",     cmd_p_next_album,     0, 0,  NULL,                 0, 0          },
-	{ "player-pause",          cmd_p_pause,          0, 0,  NULL,                 0, 0          },
-	{ "player-pause-playback", cmd_p_pause_playback, 0, 0,  NULL,                 0, 0          },
-	{ "player-play",           cmd_p_play,           0, 1,  expand_playable,      0, 0          },
-	{ "player-prev",           cmd_p_prev,           0, 0,  NULL,                 0, 0          },
-	{ "player-prev-album",     cmd_p_prev_album,     0, 0,  NULL,                 0, 0          },
-	{ "player-stop",           cmd_p_stop,           0, 0,  NULL,                 0, 0          },
-	{ "prev-view",             cmd_prev_view,        0, 0,  NULL,                 0, 0          },
-	{ "left-view",             cmd_left_view,        0, 1,  NULL,                 0, 0          },
-	{ "right-view",            cmd_right_view,       0, 1,  NULL,                 0, 0          },
-	{ "pl-create",             cmd_pl_create,        1, -1, NULL,                 0, 0          },
-	{ "pl-export",             cmd_pl_export,        1, -1, NULL,                 0, 0          },
-	{ "pl-import",             cmd_pl_import,        0, -1, NULL,                 0, 0          },
-	{ "pl-rename",             cmd_pl_rename,        1, -1, NULL,                 0, 0          },
-	{ "pl-delete",             cmd_pl_delete,        1, 1,  NULL,                 0, 0          },
-	{ "push",                  cmd_push,             0, -1, expand_commands,      0, 0          },
-	{ "pwd",                   cmd_pwd,              0, 0,  NULL,                 0, 0          },
-	{ "raise-vte",             cmd_raise_vte,        0, 0,  NULL,                 0, 0          },
-	{ "rand",                  cmd_rand,             0, 0,  NULL,                 0, 0          },
-	{ "quit",                  cmd_quit,             0, 1,  NULL,                 0, 0          },
-	{ "refresh",               cmd_refresh,          0, 0,  NULL,                 0, 0          },
-	{ "reshuffle",             cmd_reshuffle,        0, 0,  NULL,                 0, 0          },
-	{ "run",                   cmd_run,              1, -1, expand_program_paths, 0, CMD_UNSAFE },
-	{ "save",                  cmd_save,             0, 1,  expand_load_save,     0, CMD_UNSAFE },
-	{ "search-b-start",        cmd_search_b_start,   0, 0,  NULL,                 0, 0          },
-	{ "search-next",           cmd_search_next,      0, 0,  NULL,                 0, 0          },
-	{ "search-prev",           cmd_search_prev,      0, 0,  NULL,                 0, 0          },
-	{ "search-start",          cmd_search_start,     0, 0,  NULL,                 0, 0          },
-	{ "seek",                  cmd_seek,             1, 1,  NULL,                 0, 0          },
-	{ "set",                   cmd_set,              1, 1,  expand_options,       0, 0          },
-	{ "shell",                 cmd_shell,            1, -1, expand_program_paths, 0, CMD_UNSAFE },
-	{ "showbind",              cmd_showbind,         1, 1,  expand_unbind_args,   0, 0          },
-	{ "shuffle",               cmd_reshuffle,        0, 0,  NULL,                 0, CMD_HIDDEN },
-	{ "source",                cmd_source,           1, 1,  expand_files,         0, CMD_UNSAFE },
-	{ "toggle",                cmd_toggle,           1, 1,  expand_toptions,      0, 0          },
-	{ "tqueue",                cmd_tqueue,           0, 1,  NULL,                 0, 0          },
-	{ "unbind",                cmd_unbind,           1, 1,  expand_unbind_args,   0, 0          },
-	{ "unmark",                cmd_unmark,           0, 0,  NULL,                 0, 0          },
-	{ "update-cache",          cmd_update_cache,     0, 1,  NULL,                 0, 0          },
-	{ "version",               cmd_version,          0, 0,  NULL,                 0, 0          },
-	{ "view",                  cmd_view,             1, 1,  NULL,                 0, 0          },
-	{ "vol",                   cmd_vol,              1, 2,  NULL,                 0, 0          },
-	{ "w",                     cmd_save,             0, 1,  expand_load_save,     0, CMD_UNSAFE },
-	{ "win-activate",          cmd_win_activate,     0, 0,  NULL,                 0, 0          },
-	{ "win-add-l",             cmd_win_add_l,        0, 1,  NULL,                 0, 0          },
-	{ "win-add-p",             cmd_win_add_p,        0, 1,  NULL,                 0, 0          },
-	{ "win-add-Q",             cmd_win_add_Q,        0, 1,  NULL,                 0, 0          },
-	{ "win-add-q",             cmd_win_add_q,        0, 1,  NULL,                 0, 0          },
-	{ "win-bottom",            cmd_win_bottom,       0, 0,  NULL,                 0, 0          },
-	{ "win-down",              cmd_win_down,         0, 1,  NULL,                 0, 0          },
-	{ "win-half-page-down",    cmd_win_hf_pg_down,   0, 0,  NULL,                 0, 0          },
-	{ "win-half-page-up",      cmd_win_hf_pg_up,     0, 0,  NULL,                 0, 0          },
-	{ "win-mv-after",          cmd_win_mv_after,     0, 0,  NULL,                 0, 0          },
-	{ "win-mv-before",         cmd_win_mv_before,    0, 0,  NULL,                 0, 0          },
-	{ "win-next",              cmd_win_next,         0, 0,  NULL,                 0, 0          },
-	{ "win-page-bottom",       cmd_win_pg_bottom,    0, 0,  NULL,                 0, 0          },
-	{ "win-page-down",         cmd_win_pg_down,      0, 0,  NULL,                 0, 0          },
-	{ "win-page-middle",       cmd_win_pg_middle,    0, 0,  NULL,                 0, 0          },
-	{ "win-page-top",          cmd_win_pg_top,       0, 0,  NULL,                 0, 0          },
-	{ "win-page-up",           cmd_win_pg_up,        0, 0,  NULL,                 0, 0          },
-	{ "win-remove",            cmd_win_remove,       0, 0,  NULL,                 0, CMD_UNSAFE },
-	{ "win-scroll-down",       cmd_win_scroll_down,  0, 0,  NULL,                 0, 0          },
-	{ "win-scroll-up",         cmd_win_scroll_up,    0, 0,  NULL,                 0, 0          },
-	{ "win-sel-cur",           cmd_win_sel_cur,      0, 0,  NULL,                 0, 0          },
-	{ "win-toggle",            cmd_win_toggle,       0, 0,  NULL,                 0, 0          },
-	{ "win-top",               cmd_win_top,          0, 0,  NULL,                 0, 0          },
-	{ "win-up",                cmd_win_up,           0, 1,  NULL,                 0, 0          },
-	{ "win-update",            cmd_win_update,       0, 0,  NULL,                 0, 0          },
-	{ "win-update-cache",      cmd_win_update_cache, 0, 1,  NULL,                 0, 0          },
-	{ "wq",                    cmd_quit,             0, 1,  NULL,                 0, 0          },
-	{ NULL,                    NULL,                 0, 0,  0,                    0, 0          }
-};
+	{"add", cmd_add, 1, 1, expand_add, 0, 0},
+	{"bind", cmd_bind, 1, 1, expand_bind_args, 0, CMD_UNSAFE},
+	{"browser-up", cmd_browser_up, 0, 0, NULL, 0, 0},
+	{"cd", cmd_cd, 0, 1, expand_directories, 0, 0},
+	{"clear", cmd_clear, 0, 1, NULL, 0, 0},
+	{"colorscheme", cmd_colorscheme, 1, 1, expand_colorscheme, 0, 0},
+	{"echo", cmd_echo, 1, -1, NULL, 0, 0},
+	{"factivate", cmd_factivate, 0, 1, expand_factivate, 0, 0},
+	{"filter", cmd_filter, 0, 1, NULL, 0, 0},
+	{"fset", cmd_fset, 1, 1, expand_fset, 0, 0},
+	{"help", cmd_help, 0, 0, NULL, 0, 0},
+	{"invert", cmd_invert, 0, 0, NULL, 0, 0},
+	{"live-filter", cmd_live_filter, 0, 1, NULL, 0, CMD_LIVE},
+	{"load", cmd_load, 1, 1, expand_load_save, 0, 0},
+	{"lqueue", cmd_lqueue, 0, 1, NULL, 0, 0},
+	{"mark", cmd_mark, 0, 1, NULL, 0, 0},
+	{"mute", cmd_mute, 0, 0, NULL, 0, 0},
+	{"pinyin-index", cmd_pinyin_index, 1, 1, expand_directories, 0, 0},
+	{"player-next", cmd_p_next, 0, 0, NULL, 0, 0},
+	{"player-next-album", cmd_p_next_album, 0, 0, NULL, 0, 0},
+	{"player-pause", cmd_p_pause, 0, 0, NULL, 0, 0},
+	{"player-pause-playback", cmd_p_pause_playback, 0, 0, NULL, 0, 0},
+	{"player-play", cmd_p_play, 0, 1, expand_playable, 0, 0},
+	{"player-prev", cmd_p_prev, 0, 0, NULL, 0, 0},
+	{"player-prev-album", cmd_p_prev_album, 0, 0, NULL, 0, 0},
+	{"player-stop", cmd_p_stop, 0, 0, NULL, 0, 0},
+	{"prev-view", cmd_prev_view, 0, 0, NULL, 0, 0},
+	{"left-view", cmd_left_view, 0, 1, NULL, 0, 0},
+	{"right-view", cmd_right_view, 0, 1, NULL, 0, 0},
+	{"pl-create", cmd_pl_create, 1, -1, NULL, 0, 0},
+	{"pl-export", cmd_pl_export, 1, -1, NULL, 0, 0},
+	{"pl-import", cmd_pl_import, 0, -1, NULL, 0, 0},
+	{"pl-rename", cmd_pl_rename, 1, -1, NULL, 0, 0},
+	{"pl-delete", cmd_pl_delete, 1, 1, NULL, 0, 0},
+	{"push", cmd_push, 0, -1, expand_commands, 0, 0},
+	{"pwd", cmd_pwd, 0, 0, NULL, 0, 0},
+	{"raise-vte", cmd_raise_vte, 0, 0, NULL, 0, 0},
+	{"rand", cmd_rand, 0, 0, NULL, 0, 0},
+	{"quit", cmd_quit, 0, 1, NULL, 0, 0},
+	{"refresh", cmd_refresh, 0, 0, NULL, 0, 0},
+	{"reshuffle", cmd_reshuffle, 0, 0, NULL, 0, 0},
+	{"run", cmd_run, 1, -1, expand_program_paths, 0, CMD_UNSAFE},
+	{"save", cmd_save, 0, 1, expand_load_save, 0, CMD_UNSAFE},
+	{"search-b-start", cmd_search_b_start, 0, 0, NULL, 0, 0},
+	{"search-next", cmd_search_next, 0, 0, NULL, 0, 0},
+	{"search-prev", cmd_search_prev, 0, 0, NULL, 0, 0},
+	{"search-start", cmd_search_start, 0, 0, NULL, 0, 0},
+	{"seek", cmd_seek, 1, 1, NULL, 0, 0},
+	{"set", cmd_set, 1, 1, expand_options, 0, 0},
+	{"shell", cmd_shell, 1, -1, expand_program_paths, 0, CMD_UNSAFE},
+	{"showbind", cmd_showbind, 1, 1, expand_unbind_args, 0, 0},
+	{"shuffle", cmd_reshuffle, 0, 0, NULL, 0, CMD_HIDDEN},
+	{"source", cmd_source, 1, 1, expand_files, 0, CMD_UNSAFE},
+	{"toggle", cmd_toggle, 1, 1, expand_toptions, 0, 0},
+	{"tqueue", cmd_tqueue, 0, 1, NULL, 0, 0},
+	{"unbind", cmd_unbind, 1, 1, expand_unbind_args, 0, 0},
+	{"unmark", cmd_unmark, 0, 0, NULL, 0, 0},
+	{"update-cache", cmd_update_cache, 0, 1, NULL, 0, 0},
+	{"version", cmd_version, 0, 0, NULL, 0, 0},
+	{"view", cmd_view, 1, 1, NULL, 0, 0},
+	{"vol", cmd_vol, 1, 2, NULL, 0, 0},
+	{"w", cmd_save, 0, 1, expand_load_save, 0, CMD_UNSAFE},
+	{"win-activate", cmd_win_activate, 0, 0, NULL, 0, 0},
+	{"win-add-l", cmd_win_add_l, 0, 1, NULL, 0, 0},
+	{"win-add-p", cmd_win_add_p, 0, 1, NULL, 0, 0},
+	{"win-add-Q", cmd_win_add_Q, 0, 1, NULL, 0, 0},
+	{"win-add-q", cmd_win_add_q, 0, 1, NULL, 0, 0},
+	{"win-bottom", cmd_win_bottom, 0, 0, NULL, 0, 0},
+	{"win-down", cmd_win_down, 0, 1, NULL, 0, 0},
+	{"win-half-page-down", cmd_win_hf_pg_down, 0, 0, NULL, 0, 0},
+	{"win-half-page-up", cmd_win_hf_pg_up, 0, 0, NULL, 0, 0},
+	{"win-mv-after", cmd_win_mv_after, 0, 0, NULL, 0, 0},
+	{"win-mv-before", cmd_win_mv_before, 0, 0, NULL, 0, 0},
+	{"win-next", cmd_win_next, 0, 0, NULL, 0, 0},
+	{"win-page-bottom", cmd_win_pg_bottom, 0, 0, NULL, 0, 0},
+	{"win-page-down", cmd_win_pg_down, 0, 0, NULL, 0, 0},
+	{"win-page-middle", cmd_win_pg_middle, 0, 0, NULL, 0, 0},
+	{"win-page-top", cmd_win_pg_top, 0, 0, NULL, 0, 0},
+	{"win-page-up", cmd_win_pg_up, 0, 0, NULL, 0, 0},
+	{"win-remove", cmd_win_remove, 0, 0, NULL, 0, CMD_UNSAFE},
+	{"win-scroll-down", cmd_win_scroll_down, 0, 0, NULL, 0, 0},
+	{"win-scroll-up", cmd_win_scroll_up, 0, 0, NULL, 0, 0},
+	{"win-sel-cur", cmd_win_sel_cur, 0, 0, NULL, 0, 0},
+	{"win-toggle", cmd_win_toggle, 0, 0, NULL, 0, 0},
+	{"win-top", cmd_win_top, 0, 0, NULL, 0, 0},
+	{"win-up", cmd_win_up, 0, 1, NULL, 0, 0},
+	{"win-update", cmd_win_update, 0, 0, NULL, 0, 0},
+	{"win-update-cache", cmd_win_update_cache, 0, 1, NULL, 0, 0},
+	{"wq", cmd_quit, 0, 1, NULL, 0, 0},
+	{NULL, NULL, 0, 0, 0, 0, 0}};
 
 /* fills tabexp struct */
 static void expand_commands(const char *str)
@@ -2723,12 +3020,15 @@ static void expand_commands(const char *str)
 	tails = xnew(char *, N_ELEMENTS(commands) - 1);
 	len = strlen(str);
 	pos = 0;
-	for (i = 0; commands[i].name; i++) {
+	for (i = 0; commands[i].name; i++)
+	{
 		if (strncmp(str, commands[i].name, len) == 0 && !(commands[i].flags & CMD_HIDDEN))
 			tails[pos++] = xstrdup(commands[i].name + len);
 	}
-	if (pos > 0) {
-		if (pos == 1) {
+	if (pos > 0)
+	{
+		if (pos == 1)
+		{
 			/* only one command matches, add ' ' */
 			char *tmp = xstrjoin(tails[0], " ");
 
@@ -2738,7 +3038,9 @@ static void expand_commands(const char *str)
 		tabexp.head = xstrdup(str);
 		tabexp.tails = tails;
 		tabexp.count = pos;
-	} else {
+	}
+	else
+	{
 		free(tails);
 	}
 }
@@ -2752,16 +3054,19 @@ struct command *get_command(const char *str)
 	for (len = 0; str[len] && str[len] != ' '; len++)
 		;
 
-	for (i = 0; commands[i].name; i++) {
+	for (i = 0; commands[i].name; i++)
+	{
 		if (strncmp(str, commands[i].name, len))
 			continue;
 
-		if (commands[i].name[len] == 0) {
+		if (commands[i].name[len] == 0)
+		{
 			/* exact */
 			return &commands[i];
 		}
 
-		if (commands[i + 1].name && strncmp(str, commands[i + 1].name, len) == 0) {
+		if (commands[i + 1].name && strncmp(str, commands[i + 1].name, len) == 0)
+		{
 			/* ambiguous */
 			return NULL;
 		}
@@ -2789,7 +3094,8 @@ static void expand_command_line(const char *str)
 
 	cs = str;
 	ce = strchr(cs, ' ');
-	if (ce == NULL) {
+	if (ce == NULL)
+	{
 		/* expand command */
 		expand_commands(cs);
 		return;
@@ -2797,12 +3103,14 @@ static void expand_command_line(const char *str)
 
 	/* command must be expandable */
 	cmd = get_command(cs);
-	if (cmd == NULL) {
+	if (cmd == NULL)
+	{
 		/* command ambiguous or invalid */
 		return;
 	}
 
-	if (cmd->expand == NULL) {
+	if (cmd->expand == NULL)
+	{
 		/* can't expand argument */
 		return;
 	}
@@ -2813,7 +3121,8 @@ static void expand_command_line(const char *str)
 
 	/* expand argument */
 	cmd->expand(as);
-	if (tabexp.head == NULL) {
+	if (tabexp.head == NULL)
+	{
 		/* argument expansion failed */
 		return;
 	}
@@ -2841,14 +3150,16 @@ static void tab_expand(int direction)
 	s2 = xstrdup(cmdline.line + cmdline.bpos);
 
 	tmp = tabexp_expand(s1, expand_command_line, direction);
-	if (tmp) {
+	if (tmp)
+	{
 		/* tmp.s2 */
 		int l1, l2;
 
 		l1 = strlen(tmp);
 		l2 = strlen(s2);
 		cmdline.blen = l1 + l2;
-		if (cmdline.blen >= cmdline.size) {
+		if (cmdline.blen >= cmdline.size)
+		{
 			while (cmdline.blen >= cmdline.size)
 				cmdline.size *= 2;
 			cmdline.line = xrenew(char, cmdline.line, cmdline.size);
@@ -2918,9 +3229,12 @@ int parse_command(const char *buf, char **cmdp, char **argp)
 		return 0;
 
 	*cmdp = xstrndup(buf + cmd_start, cmd_len);
-	if (arg_start == arg_end) {
+	if (arg_start == arg_end)
+	{
 		*argp = NULL;
-	} else {
+	}
+	else
+	{
 		*argp = xstrndup(buf + arg_start, arg_end - arg_start);
 	}
 	return 1;
@@ -2933,31 +3247,39 @@ void run_parsed_command(char *cmd, char *arg)
 	int cmd_len = strlen(cmd);
 	int i = 0;
 
-	while (1) {
+	while (1)
+	{
 		const struct command *c = &commands[i];
 
-		if (c->name == NULL) {
+		if (c->name == NULL)
+		{
 			error_msg("unknown command\n");
 			break;
 		}
-		if (strncmp(cmd, c->name, cmd_len) == 0) {
+		if (strncmp(cmd, c->name, cmd_len) == 0)
+		{
 			const char *next = commands[i + 1].name;
 			int exact = c->name[cmd_len] == 0;
 
-			if (!exact && next && strncmp(cmd, next, cmd_len) == 0) {
+			if (!exact && next && strncmp(cmd, next, cmd_len) == 0)
+			{
 				error_msg("ambiguous command\n");
 				break;
 			}
-			if (c->min_args > 0 && arg == NULL) {
+			if (c->min_args > 0 && arg == NULL)
+			{
 				error_msg("not enough arguments\n");
 				break;
 			}
-			if (c->max_args == 0 && arg) {
+			if (c->max_args == 0 && arg)
+			{
 				error_msg("too many arguments\n");
 				break;
 			}
-			if (run_only_safe_commands && (c->flags & CMD_UNSAFE)) {
-				if (c->func != cmd_save || !is_stdout_filename(arg)) {
+			if (run_only_safe_commands && (c->flags & CMD_UNSAFE))
+			{
+				if (c->func != cmd_save || !is_stdout_filename(arg))
+				{
 					d_print("trying to execute unsafe command over net\n");
 					break;
 				}
@@ -2990,16 +3312,20 @@ static void reset_history_search(void)
 
 static void backspace(void)
 {
-	if (cmdline.clen > 0) {
+	if (cmdline.clen > 0)
+	{
 		cmdline_backspace();
-	} else {
+	}
+	else
+	{
 		input_mode = NORMAL_MODE;
 	}
 }
 
 void command_mode_ch(uchar ch)
 {
-	switch (ch) {
+	switch (ch)
+	{
 	case 0x01: // ^A
 		cmdline_move_home();
 		break;
@@ -3019,7 +3345,8 @@ void command_mode_ch(uchar ch)
 	case 0x03: // ^C
 	case 0x07: // ^G
 	case 0x1B: // ESC
-		if (cmdline.blen) {
+		if (cmdline.blen)
+		{
 			history_add_line(&cmd_history, cmdline.line);
 			cmdline_clear();
 		}
@@ -3032,7 +3359,8 @@ void command_mode_ch(uchar ch)
 		command_mode_key(KEY_DOWN);
 		return;
 	case 0x0A:
-		if (cmdline.blen) {
+		if (cmdline.blen)
+		{
 			run_command(cmdline.line);
 			history_add_line(&cmd_history, cmdline.line);
 			cmdline_clear();
@@ -3070,7 +3398,8 @@ void command_mode_ch(uchar ch)
 
 void command_mode_escape(int c)
 {
-	switch (c) {
+	switch (c)
+	{
 	case 98:
 		cmdline_backward_word(cmdline_filename_delimiters);
 		break;
@@ -3094,7 +3423,8 @@ void command_mode_key(int key)
 {
 	if (key != KEY_BTAB)
 		reset_tab_expansion();
-	switch (key) {
+	switch (key)
+	{
 	case KEY_DC:
 		cmdline_delete_ch();
 		cmdline_modified();
@@ -3116,24 +3446,28 @@ void command_mode_key(int key)
 		cmdline_move_end();
 		return;
 	case KEY_UP:
+	{
+		const char *s;
+
+		if (history_search_text == NULL)
+			history_search_text = xstrdup(cmdline.line);
+		s = history_search_forward(&cmd_history, history_search_text);
+		if (s)
+			cmdline_set_text(s);
+	}
+		return;
+	case KEY_DOWN:
+		if (history_search_text)
 		{
 			const char *s;
 
-			if (history_search_text == NULL)
-				history_search_text = xstrdup(cmdline.line);
-			s = history_search_forward(&cmd_history, history_search_text);
-			if (s)
-				cmdline_set_text(s);
-		}
-		return;
-	case KEY_DOWN:
-		if (history_search_text) {
-			const char *s;
-
 			s = history_search_backward(&cmd_history, history_search_text);
-			if (s) {
+			if (s)
+			{
 				cmdline_set_text(s);
-			} else {
+			}
+			else
+			{
 				cmdline_set_text(history_search_text);
 			}
 		}
@@ -3149,9 +3483,12 @@ void command_mode_key(int key)
 
 void command_mode_mouse(MEVENT *event)
 {
-	if ((event->bstate & BUTTON1_PRESSED) || (event->bstate & BUTTON3_PRESSED)) {
-		if (event->y <= window_get_nr_rows(current_win()) + 2) {
-			if (cmdline.blen) {
+	if ((event->bstate & BUTTON1_PRESSED) || (event->bstate & BUTTON3_PRESSED))
+	{
+		if (event->y <= window_get_nr_rows(current_win()) + 2)
+		{
+			if (cmdline.blen)
+			{
 				history_add_line(&cmd_history, cmdline.line);
 				cmdline_clear();
 			}
@@ -3166,9 +3503,13 @@ void command_mode_mouse(MEVENT *event)
 			cmdline_move_left();
 		while (i > cmdline.cpos)
 			cmdline_move_right();
-	} else if (event->bstate & BUTTON4_PRESSED) {
+	}
+	else if (event->bstate & BUTTON4_PRESSED)
+	{
 		command_mode_key(KEY_UP);
-	} else if (event->bstate & BUTTON5_PRESSED) {
+	}
+	else if (event->bstate & BUTTON5_PRESSED)
+	{
 		command_mode_key(KEY_DOWN);
 	}
 }
@@ -3189,4 +3530,62 @@ void commands_exit(void)
 	history_free(&cmd_history);
 	free(cmd_history_filename);
 	tabexp_reset();
+}
+
+static void command_mode_exit(void)
+{
+	history_save(&cmd_history);
+	history_free(&cmd_history);
+	free(cmd_history_filename);
+	tabexp_reset();
+}
+
+static void cmd_pinyin_index(char *arg)
+{
+	if (!arg || !arg[0])
+	{
+		error_msg("请指定音乐目录路径");
+		return;
+	}
+
+	char *expanded_path = expand_filename(arg);
+	if (!expanded_path)
+	{
+		error_msg("无效的路径: %s", arg);
+		return;
+	}
+
+	// 获取当前目录
+	char cwd[1024];
+	if (getcwd(cwd, sizeof(cwd)) == NULL)
+	{
+		error_msg("无法获取当前工作目录");
+		free(expanded_path);
+		return;
+	}
+
+	// 构建命令行调用Python脚本
+	char *cmd = xnew(char, strlen(expanded_path) + strlen(cwd) + 100);
+	sprintf(cmd, "python3 %s/scripts/pinyin_index.py \"%s\"",
+			cwd, expanded_path);
+
+	info_msg("正在生成拼音索引，请稍候...");
+
+	int status = system(cmd);
+	if (status != 0)
+	{
+		error_msg("生成拼音索引失败，错误码: %d", status);
+	}
+	else
+	{
+		info_msg("拼音索引生成成功！重启cmus以加载新索引");
+	}
+
+	free(cmd);
+	free(expanded_path);
+}
+
+void cmd_debug_exit(void)
+{
+	cmd_debug_close();
 }

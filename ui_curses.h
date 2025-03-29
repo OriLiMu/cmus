@@ -23,13 +23,15 @@
 #include "compiler.h"
 #include "format_print.h"
 
-enum ui_input_mode {
+enum ui_input_mode
+{
 	NORMAL_MODE,
 	COMMAND_MODE,
 	SEARCH_MODE
 };
 
-enum ui_query_answer {
+enum ui_query_answer
+{
 	UI_QUERY_ANSWER_ERROR = -1,
 	UI_QUERY_ANSWER_NO = 0,
 	UI_QUERY_ANSWER_YES = 1
@@ -77,5 +79,9 @@ const char *get_stream_title(void);
 const struct format_option *get_global_fopts(void);
 
 int get_track_win_x(void);
+
+void ui_curses_display_error_msg(const char *msg);
+
+void ui_debug_exit(void);
 
 #endif

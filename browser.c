@@ -25,6 +25,7 @@
 #include "misc.h"
 #include "options.h"
 #include "uchar.h"
+#include "pinyin_search.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -50,7 +51,8 @@ static inline void browser_entry_to_iter(struct browser_entry *e, struct iter *i
 /* filter out names starting with '.' except '..' */
 static int normal_filter(const char *name, const struct stat *s)
 {
-	if (name[0] == '.') {
+	if (name[0] == '.')
+	{
 		if (name[1] == '.' && name[2] == 0)
 			return 1;
 		return 0;
@@ -71,7 +73,8 @@ static int hidden_filter(const char *name, const struct stat *s)
 /* only works for BROWSER_ENTRY_DIR and BROWSER_ENTRY_FILE */
 static int entry_cmp(const struct browser_entry *a, const struct browser_entry *b)
 {
-	if (a->type == BROWSER_ENTRY_DIR) {
+	if (a->type == BROWSER_ENTRY_DIR)
+	{
 		if (b->type == BROWSER_ENTRY_FILE)
 			return -1;
 		if (!strcmp(a->name, "../"))
@@ -106,7 +109,8 @@ static void free_browser_list(void)
 	struct list_head *item;
 
 	item = browser_head.next;
-	while (item != &browser_head) {
+	while (item != &browser_head)
+	{
 		struct list_head *next = item->next;
 		struct browser_entry *entry;
 
@@ -136,7 +140,8 @@ static int do_browser_load(const char *name)
 	if (stat(name, &st))
 		return -1;
 
-	if (S_ISREG(st.st_mode) && cmus_is_playlist(name)) {
+	if (S_ISREG(st.st_mode) && cmus_is_playlist(name))
+	{
 		char *buf;
 		ssize_t size;
 
@@ -146,7 +151,8 @@ static int do_browser_load(const char *name)
 
 		free_browser_list();
 
-		if (buf) {
+		if (buf)
+		{
 			struct browser_entry *parent_dir_e = xmalloc(sizeof(struct browser_entry) + 4);
 			strcpy(parent_dir_e->name, "../");
 			parent_dir_e->type = BROWSER_ENTRY_DIR;
@@ -155,7 +161,9 @@ static int do_browser_load(const char *name)
 			cmus_playlist_for_each(buf, size, 0, add_pl_line, NULL);
 			munmap(buf, size);
 		}
-	} else if (S_ISDIR(st.st_mode)) {
+	}
+	else if (S_ISDIR(st.st_mode))
+	{
 		int (*filter)(const char *, const struct stat *) = normal_filter;
 		struct directory dir;
 		const char *str;
@@ -168,7 +176,8 @@ static int do_browser_load(const char *name)
 			return -1;
 
 		free_browser_list();
-		while ((str = dir_read(&dir))) {
+		while ((str = dir_read(&dir)))
+		{
 			struct browser_entry *e;
 			struct list_head *item;
 			int len;
@@ -184,14 +193,16 @@ static int do_browser_load(const char *name)
 			e = xmalloc(sizeof(struct browser_entry) + len + 2);
 			e->type = BROWSER_ENTRY_FILE;
 			memcpy(e->name, str, len);
-			if (S_ISDIR(dir.st.st_mode)) {
+			if (S_ISDIR(dir.st.st_mode))
+			{
 				e->type = BROWSER_ENTRY_DIR;
 				e->name[len++] = '/';
 			}
 			e->name[len] = 0;
 
 			item = browser_head.prev;
-			while (item != &browser_head) {
+			while (item != &browser_head)
+			{
 				struct browser_entry *other;
 
 				other = container_of(item, struct browser_entry, node);
@@ -207,7 +218,9 @@ static int do_browser_load(const char *name)
 		/* try to update currect working directory */
 		if (chdir(name))
 			return -1;
-	} else {
+	}
+	else
+	{
 		errno = ENOTDIR;
 		return -1;
 	}
@@ -228,10 +241,9 @@ static int browser_load(const char *name)
 	return 0;
 }
 
-static GENERIC_ITER_PREV(browser_get_prev, struct browser_entry, node)
-static GENERIC_ITER_NEXT(browser_get_next, struct browser_entry, node)
+static GENERIC_ITER_PREV(browser_get_prev, struct browser_entry, node) static GENERIC_ITER_NEXT(browser_get_next, struct browser_entry, node)
 
-static int browser_search_get_current(void *data, struct iter *iter, enum search_direction dir)
+	static int browser_search_get_current(void *data, struct iter *iter, enum search_direction dir)
 {
 	return window_get_sel(browser_win, iter);
 }
@@ -241,19 +253,35 @@ static int browser_search_matches(void *data, struct iter *iter, const char *tex
 	char **words = get_words(text);
 	int matched = 0;
 
-	if (words[0] != NULL) {
+	if (words[0] != NULL)
+	{
 		struct browser_entry *e;
 		int i;
 
 		e = iter_to_browser_entry(iter);
-		for (i = 0; ; i++) {
-			if (words[i] == NULL) {
+		for (i = 0;; i++)
+		{
+			if (words[i] == NULL)
+			{
 				window_set_sel(browser_win, iter);
 				matched = 1;
 				break;
 			}
-			if (u_strcasestr_filename(e->name, words[i]) == NULL)
-				break;
+
+			// 先尝试普通的文件名匹配
+			if (u_strcasestr_filename(e->name, words[i]) != NULL)
+			{
+				continue;
+			}
+
+			// 如果普通匹配失败，尝试拼音首字母匹配
+			if (words[i] && words[i][0] && pinyin_search_match(e->name, words[i]))
+			{
+				continue;
+			}
+
+			// 两种匹配方式都失败，则不匹配
+			break;
 		}
 	}
 	free_str_array(words);
@@ -264,8 +292,7 @@ static const struct searchable_ops browser_search_ops = {
 	.get_prev = browser_get_prev,
 	.get_next = browser_get_next,
 	.get_current = browser_search_get_current,
-	.matches = browser_search_matches
-};
+	.matches = browser_search_matches};
 
 void browser_init(void)
 {
@@ -273,16 +300,22 @@ void browser_init(void)
 	char cwd[1024];
 	char *dir;
 
-	if (getcwd(cwd, sizeof(cwd)) == NULL) {
+	if (getcwd(cwd, sizeof(cwd)) == NULL)
+	{
 		dir = xstrdup("/");
-	} else {
+	}
+	else
+	{
 		dir = xstrdup(cwd);
 	}
-	if (do_browser_load(dir)) {
+	if (do_browser_load(dir))
+	{
 		free(dir);
 		do_browser_load("/");
 		browser_dir = xstrdup("/");
-	} else {
+	}
+	else
+	{
 		browser_dir = dir;
 	}
 
@@ -306,7 +339,8 @@ void browser_exit(void)
 
 int browser_chdir(const char *dir)
 {
-	if (browser_load(dir)) {
+	if (browser_load(dir))
+	{
 	}
 	return 0;
 }
@@ -321,9 +355,12 @@ void browser_up(void)
 		return;
 
 	ptr = strrchr(browser_dir, '/');
-	if (ptr == browser_dir) {
+	if (ptr == browser_dir)
+	{
 		new = xstrdup("/");
-	} else {
+	}
+	else
+	{
 		new = xstrndup(browser_dir, ptr - browser_dir);
 	}
 
@@ -333,8 +370,10 @@ void browser_up(void)
 	pos = xstrdup(ptr);
 
 	errno = 0;
-	if (browser_load(new)) {
-		if (errno == ENOENT) {
+	if (browser_load(new))
+	{
+		if (errno == ENOENT)
+		{
 			free(pos);
 			free(browser_dir);
 			browser_dir = new;
@@ -349,9 +388,11 @@ void browser_up(void)
 	free(new);
 
 	/* select old position */
-	list_for_each_entry(e, &browser_head, node) {
+	list_for_each_entry(e, &browser_head, node)
+	{
 		if (strncmp(e->name, pos, len) == 0 &&
-		    (e->name[len] == '/' || e->name[len] == '\0')) {
+			(e->name[len] == '/' || e->name[len] == '\0'))
+		{
 			struct iter iter;
 
 			browser_entry_to_iter(e, &iter);
@@ -367,7 +408,8 @@ static void browser_cd(const char *dir)
 	char *new;
 	int len;
 
-	if (strcmp(dir, "../") == 0) {
+	if (strcmp(dir, "../") == 0)
+	{
 		browser_up();
 		return;
 	}
@@ -399,18 +441,27 @@ void browser_enter(void)
 	len = strlen(e->name);
 	if (len == 0)
 		return;
-	if (e->type == BROWSER_ENTRY_DIR) {
+	if (e->type == BROWSER_ENTRY_DIR)
+	{
 		browser_cd(e->name);
-	} else {
-		if (e->type == BROWSER_ENTRY_PLLINE) {
+	}
+	else
+	{
+		if (e->type == BROWSER_ENTRY_PLLINE)
+		{
 			cmus_play_file(e->name);
-		} else {
+		}
+		else
+		{
 			char *filename;
 
 			filename = fullname(browser_dir, e->name);
-			if (cmus_is_playlist(filename)) {
+			if (cmus_is_playlist(filename))
+			{
 				browser_cd_playlist(filename);
-			} else {
+			}
+			else
+			{
 				cmus_play_file(filename);
 			}
 			free(filename);
@@ -445,14 +496,19 @@ void browser_delete(void)
 	len = strlen(e->name);
 	if (len == 0)
 		return;
-	if (e->type == BROWSER_ENTRY_FILE) {
+	if (e->type == BROWSER_ENTRY_FILE)
+	{
 		char *name;
 
 		name = fullname(browser_dir, e->name);
-		if (yes_no_query("Delete file '%s'? [y/N]", e->name) == UI_QUERY_ANSWER_YES) {
-			if (unlink(name) == -1) {
+		if (yes_no_query("Delete file '%s'? [y/N]", e->name) == UI_QUERY_ANSWER_YES)
+		{
+			if (unlink(name) == -1)
+			{
 				error_msg("deleting '%s': %s", e->name, strerror(errno));
-			} else {
+			}
+			else
+			{
 				window_row_vanishes(browser_win, &sel);
 				list_del(&e->node);
 				free(e);
@@ -470,23 +526,28 @@ void browser_reload(void)
 	struct browser_entry *e;
 
 	/* remember selection */
-	if (window_get_sel(browser_win, &iter)) {
+	if (window_get_sel(browser_win, &iter))
+	{
 		e = iter_to_browser_entry(&iter);
 		sel = xstrdup(e->name);
 	}
 
 	/* have to use tmp  */
-	if (browser_load(tmp)) {
+	if (browser_load(tmp))
+	{
 		error_msg("could not update contents '%s': %s\n", tmp, strerror(errno));
 		free(tmp);
 		free(sel);
 		return;
 	}
 
-	if (sel) {
+	if (sel)
+	{
 		/* set selection */
-		list_for_each_entry(e, &browser_head, node) {
-			if (strcmp(e->name, sel) == 0) {
+		list_for_each_entry(e, &browser_head, node)
+		{
+			if (strcmp(e->name, sel) == 0)
+			{
 				browser_entry_to_iter(e, &iter);
 				window_set_sel(browser_win, &iter);
 				break;

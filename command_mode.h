@@ -27,16 +27,18 @@
 #include <curses.h>
 #endif
 
-enum {
+enum
+{
 	/* executing command is disabled over net */
-	CMD_UNSAFE	= 1 << 0,
+	CMD_UNSAFE = 1 << 0,
 	/* execute command after every typed/deleted character */
-	CMD_LIVE	= 1 << 1,
+	CMD_LIVE = 1 << 1,
 	/* hide command from completion, useful for deprecated commands */
-	CMD_HIDDEN	= 1 << 2,
+	CMD_HIDDEN = 1 << 2,
 };
 
-struct command {
+struct command
+{
 	const char *name;
 	void (*func)(char *arg);
 
@@ -75,5 +77,7 @@ void view_load(int view, char *arg);
 void view_save(int view, char *arg, int to_stdout, int filtered, int extended);
 
 struct window *current_win(void);
+
+void cmd_debug_exit(void);
 
 #endif

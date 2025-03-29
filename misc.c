@@ -47,32 +47,53 @@ char **get_words(const char *text)
 	char **words;
 	int i, j, count;
 
+	fprintf(stderr, "DEBUG: get_words called with text='%s'\n", text ? text : "NULL");
+
+	if (!text)
+	{
+		fprintf(stderr, "DEBUG: get_words - text is NULL, returning NULL\n");
+		return NULL;
+	}
+
 	while (*text == ' ')
 		text++;
 
+	fprintf(stderr, "DEBUG: get_words - after skipping initial spaces: '%s'\n", text);
+
 	count = 0;
 	i = 0;
-	while (text[i]) {
+	while (text[i])
+	{
 		count++;
+		fprintf(stderr, "DEBUG: get_words - found word starting at position %d\n", i);
 		while (text[i] && text[i] != ' ')
 			i++;
+		fprintf(stderr, "DEBUG: get_words - word ends at position %d\n", i);
 		while (text[i] == ' ')
 			i++;
 	}
+	fprintf(stderr, "DEBUG: get_words - total word count: %d\n", count);
+
 	words = xnew(char *, count + 1);
+	fprintf(stderr, "DEBUG: get_words - allocated array for %d words plus NULL terminator\n", count);
 
 	i = 0;
 	j = 0;
-	while (text[i]) {
+	while (text[i])
+	{
 		int start = i;
 
 		while (text[i] && text[i] != ' ')
 			i++;
+
+		fprintf(stderr, "DEBUG: get_words - copying word %d: '%.*s'\n", j, i - start, text + start);
 		words[j++] = xstrndup(text + start, i - start);
+
 		while (text[i] == ' ')
 			i++;
 	}
 	words[j] = NULL;
+	fprintf(stderr, "DEBUG: get_words - finished, returning %d words\n", j);
 	return words;
 }
 
@@ -100,19 +121,23 @@ const char *escape(const char *str)
 	size_t need = len * 2 + 1;
 	int s, d;
 
-	if (need > alloc) {
+	if (need > alloc)
+	{
 		alloc = (need + 16) & ~(16 - 1);
 		buf = xrealloc(buf, alloc);
 	}
 
 	d = 0;
-	for (s = 0; str[s]; s++) {
-		if (str[s] == '\\') {
+	for (s = 0; str[s]; s++)
+	{
+		if (str[s] == '\\')
+		{
 			buf[d++] = '\\';
 			buf[d++] = '\\';
 			continue;
 		}
-		if (str[s] == '\n') {
+		if (str[s] == '\n')
+		{
 			buf[d++] = '\\';
 			buf[d++] = 'n';
 			continue;
@@ -131,16 +156,19 @@ const char *unescape(const char *str)
 	int do_escape = 0;
 	int s, d;
 
-	if (need > alloc) {
+	if (need > alloc)
+	{
 		alloc = (need + 16) & ~(16 - 1);
 		buf = xrealloc(buf, alloc);
 	}
 
 	d = 0;
-	for (s = 0; str[s]; s++) {
+	for (s = 0; str[s]; s++)
+	{
 		if (!do_escape && str[s] == '\\')
 			do_escape = 1;
-		else {
+		else
+		{
 			buf[d++] = (do_escape && str[s] == 'n') ? '\n' : str[s];
 			do_escape = 0;
 		}
@@ -154,7 +182,8 @@ static int dir_exists(const char *dirname)
 	DIR *dir;
 
 	dir = opendir(dirname);
-	if (dir == NULL) {
+	if (dir == NULL)
+	{
 		if (errno == ENOENT)
 			return 0;
 		return -1;
@@ -206,7 +235,7 @@ static void move_old_playlist(void)
 	int rc = rename(old_playlist, default_playlist);
 	if (rc && errno != ENOENT)
 		die_errno("error: unable to move %s to playlist directory",
-				old_playlist);
+				  old_playlist);
 	free(default_playlist);
 	free(old_playlist);
 }
@@ -220,17 +249,24 @@ int misc_init(void)
 		die("error: environment variable HOME not set\n");
 
 	cmus_config_dir = get_non_empty_env("CMUS_HOME");
-	if (cmus_config_dir == NULL) {
+	if (cmus_config_dir == NULL)
+	{
 		char *cmus_home = xstrjoin(home_dir, "/.cmus");
 		int cmus_home_exists = dir_exists(cmus_home);
 
-		if (cmus_home_exists == 1) {
+		if (cmus_home_exists == 1)
+		{
 			cmus_config_dir = xstrdup(cmus_home);
-		} else if (cmus_home_exists == -1) {
+		}
+		else if (cmus_home_exists == -1)
+		{
 			die_errno("error: opening `%s'", cmus_home);
-		} else {
+		}
+		else
+		{
 			char *xdg_config_home = get_non_empty_env("XDG_CONFIG_HOME");
-			if (xdg_config_home == NULL) {
+			if (xdg_config_home == NULL)
+			{
 				xdg_config_home = xstrjoin(home_dir, "/.config");
 			}
 
@@ -254,10 +290,14 @@ int misc_init(void)
 		move_old_playlist();
 
 	cmus_socket_path = get_non_empty_env("CMUS_SOCKET");
-	if (cmus_socket_path == NULL) {
-		if (xdg_runtime_dir == NULL) {
+	if (cmus_socket_path == NULL)
+	{
+		if (xdg_runtime_dir == NULL)
+		{
 			cmus_socket_path = xstrjoin(cmus_config_dir, "/socket");
-		} else {
+		}
+		else
+		{
 			cmus_socket_path = xstrjoin(xdg_runtime_dir, "/cmus-socket");
 		}
 	}
@@ -307,35 +347,48 @@ static char *get_home_dir(const char *username)
 
 char *expand_filename(const char *name)
 {
-	if (name[0] == '~') {
+	if (name[0] == '~')
+	{
 		char *slash;
 
 		slash = strchr(name, '/');
-		if (slash) {
+		if (slash)
+		{
 			char *username, *home;
 
-			if (slash - name - 1 > 0) {
+			if (slash - name - 1 > 0)
+			{
 				/* ~user/... */
 				username = xstrndup(name + 1, slash - name - 1);
-			} else {
+			}
+			else
+			{
 				/* ~/... */
 				username = NULL;
 			}
 			home = get_home_dir(username);
 			free(username);
-			if (home) {
+			if (home)
+			{
 				char *expanded;
 
 				expanded = xstrjoin(home, slash);
 				free(home);
 				return expanded;
-			} else {
+			}
+			else
+			{
 				return xstrdup(name);
 			}
-		} else {
-			if (name[1] == 0) {
+		}
+		else
+		{
+			if (name[1] == 0)
+			{
 				return xstrdup(home_dir);
-			} else {
+			}
+			else
+			{
 				char *home;
 
 				home = get_home_dir(name + 1);
@@ -344,7 +397,9 @@ char *expand_filename(const char *name)
 				return xstrdup(name);
 			}
 		}
-	} else {
+	}
+	else
+	{
 		return xstrdup(name);
 	}
 }
@@ -353,8 +408,9 @@ void shuffle_array(void *array, size_t n, size_t size)
 {
 	char tmp[size];
 	char *arr = array;
-	for (ssize_t i = 0; i < (ssize_t)n - 1; ++i) {
-		size_t rnd = (size_t) rand();
+	for (ssize_t i = 0; i < (ssize_t)n - 1; ++i)
+	{
+		size_t rnd = (size_t)rand();
 		size_t j = i + rnd / (RAND_MAX / (n - i) + 1);
 		memcpy(tmp, arr + j * size, size);
 		memcpy(arr + j * size, arr + i * size, size);

@@ -25,7 +25,8 @@
 #include "expr.h"
 #include "rbtree.h"
 
-struct tree_track {
+struct tree_track
+{
 	struct simple_track simple_track;
 
 	/* position in track search tree */
@@ -44,8 +45,8 @@ static inline struct tree_track *to_tree_track(const struct rb_node *node)
 	return container_of(node, struct tree_track, tree_node);
 }
 
-
-struct album {
+struct album
+{
 	struct shuffle_info shuffle_info;
 
 	/* position in album search tree */
@@ -65,7 +66,8 @@ struct album {
 	int min_date;
 };
 
-struct artist {
+struct artist
+{
 	/* position in artist search tree */
 	struct rb_node tree_node;
 
@@ -86,7 +88,8 @@ struct artist {
 
 const char *artist_sort_name(const struct artist *);
 
-enum aaa_mode {
+enum aaa_mode
+{
 	AAA_MODE_ALL,
 	AAA_MODE_ARTIST,
 	AAA_MODE_ALBUM
@@ -106,8 +109,8 @@ extern struct window *lib_track_win;
 extern struct window *lib_cur_win;
 extern struct rb_root lib_artist_root;
 
-#define CUR_ALBUM	(lib_cur_track->album)
-#define CUR_ARTIST	(lib_cur_track->album->artist)
+#define CUR_ALBUM (lib_cur_track->album)
+#define CUR_ARTIST (lib_cur_track->album->artist)
 
 void lib_init(void);
 void tree_init(void);
@@ -125,9 +128,9 @@ void lib_reshuffle(void);
 void lib_sort_artists(void);
 void lib_set_view(int view);
 int lib_for_each(int (*cb)(void *data, struct track_info *ti), void *data,
-		void *opaque);
+				 void *opaque);
 int lib_for_each_filtered(int (*cb)(void *data, struct track_info *ti),
-		void *data, void *opaque);
+						  void *data, void *opaque);
 
 struct tree_track *lib_find_track(struct track_info *ti);
 struct track_info *lib_set_track(struct tree_track *track);
@@ -136,8 +139,8 @@ struct track_info *lib_get_cur_stored_track(void);
 
 struct tree_track *tree_get_selected(void);
 struct track_info *tree_activate_selected(void);
-const char *tree_artist_name(const struct track_info* ti);
-const char *tree_album_name(const struct track_info* ti);
+const char *tree_artist_name(const struct track_info *ti);
+const char *tree_album_name(const struct track_info *ti);
 void tree_sort_artists(void (*add_album_cb)(struct album *), void (*remove_album_cb)(struct album *));
 void tree_add_track(struct tree_track *track, void (*add_album_cb)(struct album *));
 void tree_remove(struct tree_track *track, void (*remove_album_cb)(struct album *));
@@ -185,5 +188,7 @@ static inline struct album *to_album(const struct rb_node *node)
 {
 	return container_of(node, struct album, tree_node);
 }
+
+void lib_debug_exit(void);
 
 #endif

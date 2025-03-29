@@ -26,12 +26,14 @@
 #include "debug.h"
 #include "path.h"
 #include "ui_curses.h"
+#include "pinyin_search.h"
 
 #include <string.h>
 #include <stdatomic.h>
 #include <math.h>
 
-struct track_info_priv {
+struct track_info_priv
+{
 	struct track_info ti;
 	_Atomic uint32_t ref_count;
 };
@@ -63,7 +65,8 @@ struct track_info *track_info_new(const char *filename)
 	return ti;
 }
 
-void track_info_set_comments(struct track_info *ti, struct keyval *comments) {
+void track_info_set_comments(struct track_info *ti, struct keyval *comments)
+{
 	long int r128_track_gain;
 	long int r128_album_gain;
 	long int output_gain;
@@ -86,16 +89,19 @@ void track_info_set_comments(struct track_info *ti, struct keyval *comments) {
 	ti->media = keyvals_get_val(comments, "media");
 
 	int bpm = comments_get_int(comments, "bpm");
-	if (ti->bpm == 0 || ti->bpm == -1) {
+	if (ti->bpm == 0 || ti->bpm == -1)
+	{
 		ti->bpm = bpm;
 	}
 
-	if (ti->artist == NULL && ti->albumartist != NULL) {
+	if (ti->artist == NULL && ti->albumartist != NULL)
+	{
 		/* best guess */
 		ti->artist = ti->albumartist;
 	}
 
-	if (track_info_has_tag(ti) && ti->title == NULL) {
+	if (track_info_has_tag(ti) && ti->title == NULL)
+	{
 		/* best guess */
 		ti->title = path_basename(ti->filename);
 	}
@@ -105,17 +111,20 @@ void track_info_set_comments(struct track_info *ti, struct keyval *comments) {
 	ti->rg_album_gain = comments_get_double(comments, "replaygain_album_gain");
 	ti->rg_album_peak = comments_get_double(comments, "replaygain_album_peak");
 
-	if (comments_get_signed_int(comments, "r128_track_gain", &r128_track_gain) != -1) {
+	if (comments_get_signed_int(comments, "r128_track_gain", &r128_track_gain) != -1)
+	{
 		double rg = (r128_track_gain / 256.0) + 5;
 		ti->rg_track_gain = round(rg * 100) / 100.0;
 	}
 
-	if (comments_get_signed_int(comments, "r128_album_gain", &r128_album_gain) != -1) {
+	if (comments_get_signed_int(comments, "r128_album_gain", &r128_album_gain) != -1)
+	{
 		double rg = (r128_album_gain / 256.0) + 5;
 		ti->rg_album_gain = round(rg * 100) / 100.0;
 	}
 
-	if (comments_get_signed_int(comments, "output_gain", &output_gain) != -1) {
+	if (comments_get_signed_int(comments, "output_gain", &output_gain) != -1)
+	{
 		ti->output_gain = (output_gain / 256.0);
 	}
 
@@ -137,8 +146,9 @@ void track_info_unref(struct track_info *ti)
 {
 	struct track_info_priv *priv = track_info_to_priv(ti);
 	uint32_t prev = atomic_fetch_sub_explicit(&priv->ref_count, 1,
-			memory_order_acq_rel);
-	if (prev == 1) {
+											  memory_order_acq_rel);
+	if (prev == 1)
+	{
 		keyvals_free(ti->comments);
 		free(ti->filename);
 		free(ti->codec);
@@ -164,36 +174,157 @@ int track_info_has_tag(const struct track_info *ti)
 	return ti->artist || ti->album || ti->title;
 }
 
-static inline int match_word(const struct track_info *ti, const char *word, unsigned int flags)
+// 检查 word 是否在 ti 的各个字段中（基于 flags 参数指定检查哪些字段）
+static int match_word(const struct track_info *ti, const char *word, unsigned int flags)
 {
-	return ((flags & TI_MATCH_ARTIST) && ti->artist && u_strcasestr_base(ti->artist, word)) ||
-	       ((flags & TI_MATCH_ALBUM) && ti->album && u_strcasestr_base(ti->album, word)) ||
-	       ((flags & TI_MATCH_TITLE) && ti->title && u_strcasestr_base(ti->title, word)) ||
-	       ((flags & TI_MATCH_ALBUMARTIST) && ti->albumartist && u_strcasestr_base(ti->albumartist, word));
+	fprintf(stderr, "DEBUG: match_word called with word=%s, flags=%u\n", word ? word : "NULL", flags);
+
+	if (!flags || !word)
+	{
+		fprintf(stderr, "DEBUG: match_word - missing flags or word is NULL\n");
+		return 0;
+	}
+
+	if (!ti)
+	{
+		fprintf(stderr, "DEBUG: match_word - track_info is NULL\n");
+		return 0;
+	}
+
+	// 检查元数据字段是否匹配 (artist, album, title, albumartist)
+	fprintf(stderr, "DEBUG: match_word - checking metadata fields\n");
+	fprintf(stderr, "DEBUG: match_word - artist=%s, album=%s, title=%s, albumartist=%s\n",
+			ti->artist ? ti->artist : "NULL",
+			ti->album ? ti->album : "NULL",
+			ti->title ? ti->title : "NULL",
+			ti->albumartist ? ti->albumartist : "NULL");
+
+	if (((flags & TI_MATCH_ARTIST) && ti->artist && u_strcasestr_base(ti->artist, word)) ||
+		((flags & TI_MATCH_ALBUM) && ti->album && u_strcasestr_base(ti->album, word)) ||
+		((flags & TI_MATCH_TITLE) && ti->title && u_strcasestr_base(ti->title, word)) ||
+		((flags & TI_MATCH_ALBUMARTIST) && ti->albumartist && u_strcasestr_base(ti->albumartist, word)))
+	{
+		fprintf(stderr, "DEBUG: match_word - metadata matched\n");
+		return 1;
+	}
+
+	// 检查文件名是否匹配
+	if ((flags & TI_MATCH_FILENAME) && ti->filename)
+	{
+		const char *filename = ti->filename;
+		if (!is_url(filename))
+			filename = path_basename(filename);
+
+		fprintf(stderr, "DEBUG: match_word - checking filename: %s\n", filename);
+		if (u_strcasestr_filename(filename, word))
+		{
+			fprintf(stderr, "DEBUG: match_word - filename matched\n");
+			return 1;
+		}
+	}
+
+	// 添加拼音首字母搜索 - 与原始逻辑保持一致，仅当TI_MATCH_TITLE或TI_MATCH_PINYIN标志设置时
+	if ((flags & (TI_MATCH_TITLE | TI_MATCH_PINYIN)) && ti->filename)
+	{
+		fprintf(stderr, "DEBUG: match_word - checking pinyin search for %s\n",
+				ti->filename);
+
+		if (word && word[0] && pinyin_search_match(ti->filename, word))
+		{
+			fprintf(stderr, "DEBUG: match_word - pinyin search matched\n");
+			return 1;
+		}
+	}
+
+	fprintf(stderr, "DEBUG: match_word - no match found, returning 0\n");
+	return 0;
 }
 
 static inline int flags_set(const struct track_info *ti, unsigned int flags)
 {
 	return ((flags & TI_MATCH_ARTIST) && ti->artist) ||
-	       ((flags & TI_MATCH_ALBUM) && ti->album) ||
-	       ((flags & TI_MATCH_TITLE) && ti->title) ||
-	       ((flags & TI_MATCH_ALBUMARTIST) && ti->albumartist);
+		   ((flags & TI_MATCH_ALBUM) && ti->album) ||
+		   ((flags & TI_MATCH_TITLE) && ti->title) ||
+		   ((flags & TI_MATCH_ALBUMARTIST) && ti->albumartist);
 }
 
-int track_info_matches_full(const struct track_info *ti, const char *text,
-		unsigned int flags, unsigned int exclude_flags, int match_all_words)
+int track_info_matches(const struct track_info *ti, const char *text, unsigned int flags)
 {
+	fprintf(stderr, "DEBUG: track_info_matches called with text='%s', flags=%u\n",
+			text ? text : "NULL", flags);
+
+	if (!ti)
+	{
+		fprintf(stderr, "DEBUG: track_info_matches - ti is NULL, returning 0\n");
+		return 0;
+	}
+
+	if (text == NULL || text[0] == 0)
+	{
+		fprintf(stderr, "DEBUG: track_info_matches - empty text, returning 1\n");
+		return 1;
+	}
+
+	int result = track_info_matches_full(ti, text, flags, 0, 1);
+	fprintf(stderr, "DEBUG: track_info_matches - returning %d\n", result);
+	return result;
+}
+
+/* 更全面的匹配函数，支持"!"操作符功能，用于排除不匹配的项
+ *
+ * @ti              要匹配的音轨信息结构体
+ * @text            要搜索的文本内容
+ * @flags           要搜索的字段（TI_MATCH_*）
+ * @exclude_flags   不应匹配的字段（TI_MATCH_*）
+ * @match_all_words 如果为true，则所有单词都必须匹配才返回true；如果为false，只要有一个单词匹配就返回true
+ *
+ * 返回值: 1 - 如果根据match_all_words的要求，所有/任意单词在ti的指定字段（flags）中找到
+ *        0 - 其他情况
+ */
+int track_info_matches_full(const struct track_info *ti, const char *text, unsigned int flags,
+							unsigned int exclude_flags, int match_all_words)
+{
+	fprintf(stderr, "DEBUG: track_info_matches_full called with text='%s', flags=%u, exclude_flags=%u, match_all_words=%d\n",
+			text ? text : "NULL", flags, exclude_flags, match_all_words);
+
+	if (!ti)
+	{
+		fprintf(stderr, "DEBUG: track_info_matches_full - ti is NULL, returning 0\n");
+		return 0;
+	}
+
+	if (!text)
+	{
+		fprintf(stderr, "DEBUG: track_info_matches_full - text is NULL, returning 0\n");
+		return 0;
+	}
+
 	char **words;
 	int i, matched = 0;
 
+	fprintf(stderr, "DEBUG: track_info_matches_full - calling get_words\n");
 	words = get_words(text);
-	for (i = 0; words[i]; i++) {
+	fprintf(stderr, "DEBUG: track_info_matches_full - get_words returned\n");
+
+	if (!words)
+	{
+		fprintf(stderr, "DEBUG: track_info_matches_full - no words, returning 1\n");
+		return 1;
+	}
+
+	for (i = 0; words[i]; i++)
+	{
 		const char *word = words[i];
 
+		fprintf(stderr, "DEBUG: track_info_matches_full - processing word %d: '%s'\n", i, word);
+
 		matched = 0;
-		if (flags_set(ti, flags)) {
+		if (flags_set(ti, flags))
+		{
 			matched = match_word(ti, word, flags);
-		} else {
+		}
+		else
+		{
 			/* compare with url or filename without path */
 			const char *filename = ti->filename;
 
@@ -209,15 +340,13 @@ int track_info_matches_full(const struct track_info *ti, const char *text,
 
 		if (match_all_words ? !matched : matched)
 			break;
-
 	}
-	free_str_array(words);
-	return matched;
-}
 
-int track_info_matches(const struct track_info *ti, const char *text, unsigned int flags)
-{
-	return track_info_matches_full(ti, text, flags, 0, 1);
+	fprintf(stderr, "DEBUG: track_info_matches_full - freeing words array\n");
+	free_str_array(words);
+
+	fprintf(stderr, "DEBUG: track_info_matches_full - returning %d\n", matched);
+	return matched;
 }
 
 static int doublecmp0(double a, double b)
@@ -236,17 +365,20 @@ int track_info_cmp(const struct track_info *a, const struct track_info *b, const
 {
 	int i, rev = 0, res = 0;
 
-	for (i = 0; keys[i] != SORT_INVALID; i++) {
+	for (i = 0; keys[i] != SORT_INVALID; i++)
+	{
 		sort_key_t key = keys[i];
 		const char *av, *bv;
 
 		rev = 0;
-		if (key >= REV_SORT__START) {
+		if (key >= REV_SORT__START)
+		{
 			rev = 1;
 			key -= REV_SORT__START;
 		}
 
-		switch (key) {
+		switch (key)
+		{
 		case SORT_TRACKNUMBER:
 		case SORT_DISCNUMBER:
 		case SORT_TOTALDISCS:
@@ -285,58 +417,58 @@ int track_info_cmp(const struct track_info *a, const struct track_info *b, const
 	return rev ? -res : res;
 }
 
-static const struct {
+static const struct
+{
 	const char *str;
 	sort_key_t key;
 } sort_key_map[] = {
-	{ "artist",		SORT_ARTIST		},
-	{ "album",		SORT_ALBUM		},
-	{ "title",		SORT_TITLE		},
-	{ "play_count",		SORT_PLAY_COUNT		},
-	{ "tracknumber",	SORT_TRACKNUMBER	},
-	{ "discnumber",		SORT_DISCNUMBER		},
-	{ "totaldiscs",		SORT_TOTALDISCS		},
-	{ "date",		SORT_DATE		},
-	{ "originaldate",	SORT_ORIGINALDATE	},
-	{ "genre",		SORT_GENRE		},
-	{ "comment",		SORT_COMMENT		},
-	{ "albumartist",	SORT_ALBUMARTIST	},
-	{ "filename",		SORT_FILENAME		},
-	{ "filemtime",		SORT_FILEMTIME		},
-	{ "rg_track_gain",	SORT_RG_TRACK_GAIN	},
-	{ "rg_track_peak",	SORT_RG_TRACK_PEAK	},
-	{ "rg_album_gain",	SORT_RG_ALBUM_GAIN	},
-	{ "rg_album_peak",	SORT_RG_ALBUM_PEAK	},
-	{ "bitrate",		SORT_BITRATE		},
-	{ "codec",		SORT_CODEC		},
-	{ "codec_profile",	SORT_CODEC_PROFILE	},
-	{ "media",		SORT_MEDIA		},
-	{ "bpm",		SORT_BPM		},
-	{ "-artist",		REV_SORT_ARTIST		},
-	{ "-album",		REV_SORT_ALBUM		},
-	{ "-title",		REV_SORT_TITLE		},
-	{ "-play_count", 	REV_SORT_PLAY_COUNT	},
-	{ "-tracknumber",	REV_SORT_TRACKNUMBER	},
-	{ "-discnumber",	REV_SORT_DISCNUMBER	},
-	{ "-totaldiscs",	REV_SORT_TOTALDISCS	},
-	{ "-date",		REV_SORT_DATE		},
-	{ "-originaldate",	REV_SORT_ORIGINALDATE	},
-	{ "-genre",		REV_SORT_GENRE		},
-	{ "-comment",		REV_SORT_COMMENT	},
-	{ "-albumartist",	REV_SORT_ALBUMARTIST	},
-	{ "-filename",		REV_SORT_FILENAME	},
-	{ "-filemtime",		REV_SORT_FILEMTIME	},
-	{ "-rg_track_gain",	REV_SORT_RG_TRACK_GAIN	},
-	{ "-rg_track_peak",	REV_SORT_RG_TRACK_PEAK	},
-	{ "-rg_album_gain",	REV_SORT_RG_ALBUM_GAIN	},
-	{ "-rg_album_peak",	REV_SORT_RG_ALBUM_PEAK	},
-	{ "-bitrate",		REV_SORT_BITRATE	},
-	{ "-codec",		REV_SORT_CODEC		},
-	{ "-codec_profile",	REV_SORT_CODEC_PROFILE	},
-	{ "-media",		REV_SORT_MEDIA		},
-	{ "-bpm",		REV_SORT_BPM		},
-	{ NULL,                 SORT_INVALID            }
-};
+	{"artist", SORT_ARTIST},
+	{"album", SORT_ALBUM},
+	{"title", SORT_TITLE},
+	{"play_count", SORT_PLAY_COUNT},
+	{"tracknumber", SORT_TRACKNUMBER},
+	{"discnumber", SORT_DISCNUMBER},
+	{"totaldiscs", SORT_TOTALDISCS},
+	{"date", SORT_DATE},
+	{"originaldate", SORT_ORIGINALDATE},
+	{"genre", SORT_GENRE},
+	{"comment", SORT_COMMENT},
+	{"albumartist", SORT_ALBUMARTIST},
+	{"filename", SORT_FILENAME},
+	{"filemtime", SORT_FILEMTIME},
+	{"rg_track_gain", SORT_RG_TRACK_GAIN},
+	{"rg_track_peak", SORT_RG_TRACK_PEAK},
+	{"rg_album_gain", SORT_RG_ALBUM_GAIN},
+	{"rg_album_peak", SORT_RG_ALBUM_PEAK},
+	{"bitrate", SORT_BITRATE},
+	{"codec", SORT_CODEC},
+	{"codec_profile", SORT_CODEC_PROFILE},
+	{"media", SORT_MEDIA},
+	{"bpm", SORT_BPM},
+	{"-artist", REV_SORT_ARTIST},
+	{"-album", REV_SORT_ALBUM},
+	{"-title", REV_SORT_TITLE},
+	{"-play_count", REV_SORT_PLAY_COUNT},
+	{"-tracknumber", REV_SORT_TRACKNUMBER},
+	{"-discnumber", REV_SORT_DISCNUMBER},
+	{"-totaldiscs", REV_SORT_TOTALDISCS},
+	{"-date", REV_SORT_DATE},
+	{"-originaldate", REV_SORT_ORIGINALDATE},
+	{"-genre", REV_SORT_GENRE},
+	{"-comment", REV_SORT_COMMENT},
+	{"-albumartist", REV_SORT_ALBUMARTIST},
+	{"-filename", REV_SORT_FILENAME},
+	{"-filemtime", REV_SORT_FILEMTIME},
+	{"-rg_track_gain", REV_SORT_RG_TRACK_GAIN},
+	{"-rg_track_peak", REV_SORT_RG_TRACK_PEAK},
+	{"-rg_album_gain", REV_SORT_RG_ALBUM_GAIN},
+	{"-rg_album_peak", REV_SORT_RG_ALBUM_PEAK},
+	{"-bitrate", REV_SORT_BITRATE},
+	{"-codec", REV_SORT_CODEC},
+	{"-codec_profile", REV_SORT_CODEC_PROFILE},
+	{"-media", REV_SORT_MEDIA},
+	{"-bpm", REV_SORT_BPM},
+	{NULL, SORT_INVALID}};
 
 sort_key_t *parse_sort_keys(const char *value)
 {
@@ -348,7 +480,8 @@ sort_key_t *parse_sort_keys(const char *value)
 	keys = xnew(sort_key_t, size);
 
 	s = value;
-	while (1) {
+	while (1)
+	{
 		char buf[32];
 		int i, len;
 
@@ -369,8 +502,10 @@ sort_key_t *parse_sort_keys(const char *value)
 		buf[len] = 0;
 		s = e;
 
-		for (i = 0; ; i++) {
-			if (sort_key_map[i].str == NULL) {
+		for (i = 0;; i++)
+		{
+			if (sort_key_map[i].str == NULL)
+			{
 				error_msg("invalid sort key '%s'", buf);
 				free(keys);
 				return NULL;
@@ -379,7 +514,8 @@ sort_key_t *parse_sort_keys(const char *value)
 			if (strcmp(buf, sort_key_map[i].str) == 0)
 				break;
 		}
-		if (pos == size - 1) {
+		if (pos == size - 1)
+		{
 			size *= 2;
 			keys = xrenew(sort_key_t, keys, size);
 		}
@@ -392,7 +528,8 @@ sort_key_t *parse_sort_keys(const char *value)
 const char *sort_key_to_str(sort_key_t key)
 {
 	int i;
-	for (i = 0; sort_key_map[i].str; i++) {
+	for (i = 0; sort_key_map[i].str; i++)
+	{
 		if (sort_key_map[i].key == key)
 			return sort_key_map[i].str;
 	}
@@ -403,7 +540,8 @@ void sort_keys_to_str(const sort_key_t *keys, char *buf, size_t bufsize)
 {
 	int i, pos = 0;
 
-	for (i = 0; keys[i] != SORT_INVALID; i++) {
+	for (i = 0; keys[i] != SORT_INVALID; i++)
+	{
 		const char *key = sort_key_to_str(keys[i]);
 		int len = strlen(key);
 

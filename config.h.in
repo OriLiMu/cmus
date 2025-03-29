@@ -1,0 +1,24 @@
+#pragma once
+
+#cmakedefine HAVE_DISCID
+#cmakedefine HAVE_CONFIG
+#cmakedefine HAVE_ICONV
+
+#cmakedefine CONFIG_AAC
+#cmakedefine CONFIG_ALSA
+#cmakedefine CONFIG_AO
+#cmakedefine CONFIG_CDIO
+#cmakedefine CONFIG_CUE
+#cmakedefine CONFIG_FFMPEG
+#cmakedefine CONFIG_FLAC
+#cmakedefine CONFIG_JACK
+#cmakedefine CONFIG_MAD
+#cmakedefine CONFIG_MODPLUG
+#cmakedefine CONFIG_MPC
+#cmakedefine CONFIG_MPRIS
+#cmakedefine CONFIG_OPUS
+#cmakedefine CONFIG_OSS
+#cmakedefine CONFIG_PULSE
+#cmakedefine CONFIG_VORBIS
+#cmakedefine CONFIG_WAV
+#cmakedefine CONFIG_WAVPACK
